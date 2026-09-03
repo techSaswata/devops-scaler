@@ -1,0 +1,100 @@
+############ CLEAN UP ANY PREVIOUS RUN ############
+done
+
+############ BUILD ALL IMAGES ############
+
+=== docker build -t hello-nodejs ./nodejs-app ===
+#11 exporting config sha256:ce04c3a2101ae80b497da5b93754d51f7bd014e364384d406e4dad425353b399 done
+#11 exporting attestation manifest sha256:12123efce86837dbfee9ab56d0e2b70432f41fcd407d1fa890c5a45d5e4c46d0 done
+#11 exporting manifest list sha256:fc2a2e7e19f319fdae82fca663e1681251fe73ee4d643f88c5260e666d8c16dc done
+#11 naming to docker.io/library/hello-nodejs:latest done
+#11 unpacking to docker.io/library/hello-nodejs:latest 0.0s done
+#11 DONE 0.1s
+
+=== docker build -t hello-python ./python-app ===
+#11 exporting config sha256:84cc44646e3d416e7092840da80aa9fe3dd0d1e949467aa66809c5165916779d done
+#11 exporting attestation manifest sha256:1593fa730a07ff5b978d29247787f9f08c478a7e8c2581be0a7edeb76d647e04 done
+#11 exporting manifest list sha256:63524fd8f3f9bb3526319ccb0f4f6434b6065de288d6f238b8826025f7c8f83c done
+#11 naming to docker.io/library/hello-python:latest done
+#11 unpacking to docker.io/library/hello-python:latest 0.0s done
+#11 DONE 0.2s
+
+=== docker build -t hello-java ./java-app ===
+#14 exporting config sha256:8d77ca5d602fa1456cb446539085fb22e5daa9da8d7481053016b5cb9a48801c done
+#14 exporting attestation manifest sha256:5a523e921177f34c69cdd48240c31622b58dbc6ee08db1da009fd4ff1a6042ca done
+#14 exporting manifest list sha256:392b5091e935e8b288d780cfbcb3428b9f15c53cf2805eead6ea4da15458e65d done
+#14 naming to docker.io/library/hello-java:latest done
+#14 unpacking to docker.io/library/hello-java:latest 0.0s done
+#14 DONE 0.1s
+
+=== docker build -t hello-apache ./Apache-app ===
+#8 exporting config sha256:56c7da093a6b5ef4f4cd7a993d55cc53242f9648850eed1b7949485b674dce99 done
+#8 exporting attestation manifest sha256:e3072ea6ad8dec53df4f4ee86489d7b72560ca8496d3db4e9e5fcdb62873d16a done
+#8 exporting manifest list sha256:d53e70cd5c219709d0bf2dd005c1c9b294350ca7260a98f50d7d68627f3b9e87 done
+#8 naming to docker.io/library/hello-apache:latest done
+#8 unpacking to docker.io/library/hello-apache:latest done
+#8 DONE 0.1s
+
+=== docker build -t hello-react ./React-app ===
+#17 exporting config sha256:25e8ffad64dd0092517fa25c9464cdd1aec29e499d531ce9af95d4b8bd5d16d3 done
+#17 exporting attestation manifest sha256:4323dc1e7ffe1743293ed959ce5031f893f3e98824f3a9c6de923227b4befa3e done
+#17 exporting manifest list sha256:9fce3da7a8129bcb7ba3efe7f20edc9d91068266476f4db437fa344e0bbeff00 done
+#17 naming to docker.io/library/hello-react:latest done
+#17 unpacking to docker.io/library/hello-react:latest 0.0s done
+#17 DONE 0.1s
+
+=== docker build -t hello-nginx ./nginx-app ===
+#9 exporting config sha256:9216868e1152cecaf8c9ff36f89b21d67c760e19977102299f60237813d7e14f done
+#9 exporting attestation manifest sha256:66b10679f881afbf96698eb4443c5fd5f7bdbddb73bee89623c4d92bc70d866b done
+#9 exporting manifest list sha256:52356388e0e2310776b5000189e63fe4240b0aee1f684415d2c540f0501360ec done
+#9 naming to docker.io/library/hello-nginx:latest done
+#9 unpacking to docker.io/library/hello-nginx:latest 0.0s done
+#9 DONE 0.1s
+
+############ RUN ALL CONTAINERS ############
+$ docker run -d --name hello-nodejs -p 3001:3000 hello-nodejs
+4a3b36ff400f2732b022fd524fdfc107f5b3eb8ff927ce1d98d9bab409206f4e
+$ docker run -d --name hello-python -p 3002:5000 hello-python
+73af69e300b48a65c5088fb7f3dc61f9f812f8cb49f3a896c9ff3e891c0142a3
+$ docker run -d --name hello-java -p 3003:8080 hello-java
+80912c75e25ed5245ebac38be2c5a5d8e3f8481af45a34143edcfe08478fab26
+$ docker run -d --name hello-apache -p 3004:80 hello-apache
+0d4bf7ed4ac4e06e7620d34f96ab73d1fd76be2b7a58d916b97824b0b0e2d3cd
+$ docker run -d --name hello-react -p 3005:80 hello-react
+6bdcb6afbe14aab43d851d382094ef80e6bd314e35a0d09526b96c7965be8cb9
+$ docker run -d --name hello-nginx -p 3006:80 hello-nginx
+fb9564fcc75a9296094f6778282b9bdf3836667a1f94ff4f526012aac8e7ef24
+
+############ WAIT FOR ALL TO ANSWER ############
+hello-nodejs   HTTP 200 after 1s
+hello-python   HTTP 200 after 1s
+hello-java     HTTP 200 after 1s
+hello-apache   HTTP 200 after 1s
+hello-react    HTTP 200 after 1s
+hello-nginx    HTTP 200 after 1s
+
+############ docker ps ############
+NAMES          IMAGE          STATUS                                     PORTS
+hello-nginx    hello-nginx    Up Less than a second (health: starting)   0.0.0.0:3006->80/tcp, [::]:3006->80/tcp
+hello-react    hello-react    Up Less than a second (health: starting)   0.0.0.0:3005->80/tcp, [::]:3005->80/tcp
+hello-apache   hello-apache   Up Less than a second (health: starting)   0.0.0.0:3004->80/tcp, [::]:3004->80/tcp
+hello-java     hello-java     Up Less than a second                      0.0.0.0:3003->8080/tcp, [::]:3003->8080/tcp
+hello-python   hello-python   Up Less than a second (health: starting)   0.0.0.0:3002->5000/tcp, [::]:3002->5000/tcp
+hello-nodejs   hello-nodejs   Up Less than a second (health: starting)   0.0.0.0:3001->3000/tcp, [::]:3001->3000/tcp
+
+############ docker images ############
+REPOSITORY          TAG         SIZE
+hello-nginx         latest      102MB
+hello-react         latest      102MB
+hello-apache        latest      205MB
+hello-java          latest      474MB
+hello-python        latest      222MB
+hello-nodejs        latest      194MB
+
+############ VERIFY 'Hello World' IS ON EACH PAGE ############
+hello-nodejs   port 3001  OK — "Hello World" present  [Hello World — Node.js]
+hello-python   port 3002  OK — "Hello World" present  [Hello World — Python]
+hello-java     port 3003  OK — "Hello World" present  [Hello World — Java]
+hello-apache   port 3004  OK — "Hello World" present  [Hello World — Apache]
+hello-react    port 3005  OK — "Hello World" present  [Hello World — React]
+hello-nginx    port 3006  OK — "Hello World" present  [Hello World — Nginx]
