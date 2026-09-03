@@ -102,6 +102,15 @@ Every section has a script. With Docker running:
 ./07-docker-network-volumes/scripts/task1-networking.sh
 ```
 
+### Cleaning up
+
+The demo containers are left running after each section so the applications can be opened
+in a browser. When you're done:
+
+```bash
+./cleanup.sh
+```
+
 ### Ports used
 
 | Port | What |
