@@ -1,0 +1,105 @@
+############ docker ps — all six containers running ############
+$ docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+NAMES          IMAGE          STATUS                        PORTS
+hello-java     hello-java     Up About a minute (healthy)   0.0.0.0:3003->8080/tcp, [::]:3003->8080/tcp
+hello-apache   hello-apache   Up About a minute (healthy)   0.0.0.0:3004->80/tcp, [::]:3004->80/tcp
+hello-nginx    hello-nginx    Up 2 minutes (healthy)        0.0.0.0:3006->80/tcp, [::]:3006->80/tcp
+hello-react    hello-react    Up 2 minutes (healthy)        0.0.0.0:3005->80/tcp, [::]:3005->80/tcp
+hello-python   hello-python   Up 2 minutes (healthy)        0.0.0.0:3002->5000/tcp, [::]:3002->5000/tcp
+hello-nodejs   hello-nodejs   Up 2 minutes (healthy)        0.0.0.0:3001->3000/tcp, [::]:3001->3000/tcp
+
+############ health status of every container ############
+$ docker inspect --format "{{.State.Health.Status}}" <container>
+hello-nodejs   healthy
+hello-python   healthy
+hello-java     healthy
+hello-apache   healthy
+hello-react    healthy
+hello-nginx    healthy
+
+############ image sizes ############
+$ docker images | grep hello-
+REPOSITORY          TAG         SIZE
+hello-react         latest      102MB
+hello-nginx         latest      102MB
+hello-apache        latest      205MB
+hello-java          latest      474MB
+hello-python        latest      222MB
+hello-nodejs        latest      194MB
+
+############ HTTP verification — curl each app ############
+
+--- hello-nodejs  ->  http://localhost:3001 ---
+$ curl -s -o /dev/null -w '...' http://localhost:3001/
+HTTP 200 in 0.001111s (1987 bytes)
+$ curl -s http://localhost:3001/ | grep -o '<title>.*</title>'
+<title>Hello World — Node.js</title>
+$ curl -s http://localhost:3001/ | grep -o 'Hello <span>World</span>'
+Hello <span>World</span>
+
+--- hello-python  ->  http://localhost:3002 ---
+$ curl -s -o /dev/null -w '...' http://localhost:3002/
+HTTP 200 in 0.001129s (1991 bytes)
+$ curl -s http://localhost:3002/ | grep -o '<title>.*</title>'
+<title>Hello World — Python</title>
+$ curl -s http://localhost:3002/ | grep -o 'Hello <span>World</span>'
+Hello <span>World</span>
+
+--- hello-java  ->  http://localhost:3003 ---
+$ curl -s -o /dev/null -w '...' http://localhost:3003/
+HTTP 200 in 0.004652s (1989 bytes)
+$ curl -s http://localhost:3003/ | grep -o '<title>.*</title>'
+<title>Hello World — Java</title>
+$ curl -s http://localhost:3003/ | grep -o 'Hello <span>World</span>'
+Hello <span>World</span>
+
+--- hello-apache  ->  http://localhost:3004 ---
+$ curl -s -o /dev/null -w '...' http://localhost:3004/
+HTTP 200 in 0.000643s (2080 bytes)
+$ curl -s http://localhost:3004/ | grep -o '<title>.*</title>'
+<title>Hello World — Apache</title>
+$ curl -s http://localhost:3004/ | grep -o 'Hello <span>World</span>'
+Hello <span>World</span>
+
+--- hello-react  ->  http://localhost:3005 ---
+$ curl -s -o /dev/null -w '...' http://localhost:3005/
+HTTP 200 in 0.000512s (406 bytes)
+$ curl -s http://localhost:3005/ | grep -o '<title>.*</title>'
+<title>Hello World — React</title>
+$ curl -s http://localhost:3005/ | grep -o 'Hello <span>World</span>'
+
+--- hello-nginx  ->  http://localhost:3006 ---
+$ curl -s -o /dev/null -w '...' http://localhost:3006/
+HTTP 200 in 0.000540s (2042 bytes)
+$ curl -s http://localhost:3006/ | grep -o '<title>.*</title>'
+<title>Hello World — Nginx</title>
+$ curl -s http://localhost:3006/ | grep -o 'Hello <span>World</span>'
+Hello <span>World</span>
+
+############ container logs — proof each server started ############
+
+$ docker logs hello-nodejs
+nodejs-app listening on http://0.0.0.0:3000
+
+$ docker logs hello-python
+python-app listening on http://0.0.0.0:5000
+ * Serving Flask app 'app'
+ * Debug mode: off
+
+$ docker logs hello-java
+java-app listening on http://0.0.0.0:8080
+
+$ docker logs hello-apache
+AH00558: httpd: Could not reliably determine the server's fully qualified domain name, using 172.17.0.4. Set the 'ServerName' directive globally to suppress this message
+AH00558: httpd: Could not reliably determine the server's fully qualified domain name, using 172.17.0.4. Set the 'ServerName' directive globally to suppress this message
+[Thu Sep 03 17:30:31.179673 2026] [mpm_event:notice] [pid 1:tid 1] AH00489: Apache/2.4.68 (Unix) configured -- resuming normal operations
+
+$ docker logs hello-react
+/docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration
+/docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/
+/docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+
+$ docker logs hello-nginx
+/docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration
+/docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/
+/docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh

@@ -1,0 +1,9 @@
+{
+  "name": "nodejs-hello-world",
+  "version": "1.0.0",
+  "description": "Hello World web app in pure Node.js (no framework) for the Docker homework",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "author": "Saswata Das (24BCS10248)",
+  "license": "MIT"
+}
