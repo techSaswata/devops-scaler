@@ -1,0 +1,110 @@
+############ 1. BUILD the MULTI-STAGE image ############
+$ docker build -t multistage-app:latest .
+
+#7 [builder 2/6] WORKDIR /build
+#7 CACHED
+
+#8 [builder 3/6] COPY go.mod ./
+#8 CACHED
+
+#9 [builder 4/6] RUN go mod download
+#9 CACHED
+
+#10 [builder 5/6] COPY main.go ./
+#10 CACHED
+
+#11 [stage-1 1/1] COPY --from=builder /app/server /server
+#11 CACHED
+
+#12 exporting to image
+#12 exporting layers done
+#12 exporting manifest sha256:122986fa58c39c2c7f1346393a5eea4611f02834a94f3a4a564a037a0804dec2 done
+#12 exporting config sha256:a66da423be91ab010fb334b7f22f2a55f864a07c7dec7ee63781a7eb065862a1 done
+#12 exporting attestation manifest sha256:45d20cebc40a2736552de9ad196428b5aab6ca1c17223dd3b891edc22108203e done
+#12 exporting manifest list sha256:a67688b7ab1265a3867c5b7ad6e53bfe3d3cbf2d47fd430cac4b0e60a51fd5b6 done
+#12 naming to docker.io/library/multistage-app:latest done
+#12 unpacking to docker.io/library/multistage-app:latest done
+#12 DONE 0.0s
+
+############ 2. BUILD the SINGLE-STAGE image (for comparison) ############
+$ docker build -f Dockerfile.single-stage -t singlestage-app:latest .
+#11 exporting layers done
+#11 exporting manifest sha256:469a90809af473c4450260b822976b9d46c7cf3da874a69af89d21f04eb1125c done
+#11 exporting config sha256:cfb56de2a128ffb8552e6e0f2d69d2c592e38d3bb80976d70ebce733a8755635 done
+#11 exporting attestation manifest sha256:a6752895b357feeed717ed90675ef9657000b7f9a1bbd715ce21e465f29a552a done
+#11 exporting manifest list sha256:2ebc138b03b5edc1029e969c97b69b5f4b751f18ccef41055024715eb48837a1 done
+#11 naming to docker.io/library/singlestage-app:latest done
+#11 unpacking to docker.io/library/singlestage-app:latest done
+#11 DONE 0.0s
+
+############ 3. SIZE COMPARISON ############
+$ docker images | grep -E "multistage-app|singlestage-app|golang"
+REPOSITORY          TAG         SIZE
+singlestage-app     latest      440MB
+multistage-app      latest      6.53MB
+
+                    unpacked on disk   compressed content
+  multi-stage       6.53MB             1.93 MB
+  single-stage      440MB              89.70 MB
+
+  reduction (compressed) : 97.9% smaller
+  ratio     (compressed) : 46.3x
+
+############ 4. WHAT IS ACTUALLY INSIDE THE FINAL IMAGE? ############
+$ docker image inspect multistage-app --format "{{len .RootFS.Layers}} layer(s)"
+1 layer(s)
+
+$ docker history multistage-app:latest
+CREATED BY                                      SIZE
+ENTRYPOINT ["/server"]                          0B
+EXPOSE [8080/tcp]                               0B
+ENV PORT=8080                                   0B
+USER 65534                                      0B
+COPY /app/server /server # buildkit             4.6MB
+LABEL description=Hello World from Docker mu…   0B
+LABEL maintainer=Saswata Das <24BCS10248>       0B
+
+############ 5. RUN the container on PORT 8080 ############
+$ docker run -d --name multistage-app -p 8080:8080 multistage-app:latest
+e06b16be2fa411609026211047b75f14a9b0cce6786c55341e95d11e5c9635d7
+
+waiting for the app to answer...
+HTTP 200 after 1s
+
+############ 6. VERIFY with docker ps — running on port 8080 ############
+$ docker ps --filter name=multistage-app
+NAMES            IMAGE                   STATUS                  PORTS
+multistage-app   multistage-app:latest   Up Less than a second   0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+
+$ docker port multistage-app
+8080/tcp -> 0.0.0.0:8080
+8080/tcp -> [::]:8080
+
+############ 7. VERIFY the application output ############
+$ curl -s http://localhost:8080/ | grep -o "Hello World from Docker multi-stage build"
+Hello World from Docker multi-stage build
+
+$ curl -s -o /dev/null -w "HTTP %{http_code} (%{size_download} bytes)\n" http://localhost:8080/
+HTTP 200 (2018 bytes)
+
+$ docker logs multistage-app
+2026/09/03 17:46:57 multistage-app listening on http://0.0.0.0:8080
+2026/09/03 17:46:57 Hello World from Docker multi-stage build
+
+############ 8. PROOF the final image has no shell / no OS ############
+$ docker run --rm --entrypoint /bin/sh multistage-app:latest   (expected to FAIL)
+docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: exec: "/bin/sh": stat /bin/sh: no such file or directory: unknown
+
+Run 'docker run --help' for more information
+
+$ docker run --rm --entrypoint /bin/ls multistage-app:latest /   (expected to FAIL)
+docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: exec: "/bin/ls": stat /bin/ls: no such file or directory: unknown
+
+Run 'docker run --help' for more information
+
+$ docker exec multistage-app sh    (cannot debug a scratch container this way)
+OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH: unknown
+
+>> There is no shell, no ls, no package manager, no libc in the image.
+>> Nothing to exploit and nothing to patch — that is the security win of
+>> a scratch-based multi-stage build, on top of the size win.
