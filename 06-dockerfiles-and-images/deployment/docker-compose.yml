@@ -1,0 +1,59 @@
+# Task 3 — deploy three different types of application with Docker.
+#
+# The three apps themselves live in ../../05-docker-fundamentals/. Rather than
+# duplicating their source, this compose file builds them from there, which also
+# demonstrates that a build context can sit outside the compose file's folder.
+#
+#   docker compose up -d --build
+#   docker compose ps
+#   docker compose down
+
+services:
+
+  # ---------- 1. Node.js ----------
+  nodejs:
+    build:
+      context: ../../05-docker-fundamentals/nodejs-app
+    image: deploy-nodejs:1.0
+    container_name: deploy-nodejs
+    ports:
+      - "4001:3000"
+    environment:
+      - PORT=3000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks: [appnet]
+
+  # ---------- 2. Python ----------
+  python:
+    build:
+      context: ../../05-docker-fundamentals/python-app
+    image: deploy-python:1.0
+    container_name: deploy-python
+    ports:
+      - "4002:5000"
+    environment:
+      - PORT=5000
+    restart: unless-stopped
+    networks: [appnet]
+
+  # ---------- 3. Java ----------
+  java:
+    build:
+      context: ../../05-docker-fundamentals/java-app
+    image: deploy-java:1.0
+    container_name: deploy-java
+    ports:
+      - "4003:8080"
+    environment:
+      - PORT=8080
+    restart: unless-stopped
+    networks: [appnet]
+
+networks:
+  appnet:
+    driver: bridge

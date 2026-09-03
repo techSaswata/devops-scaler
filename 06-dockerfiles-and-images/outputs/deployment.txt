@@ -1,0 +1,76 @@
+############ 1. TEAR DOWN any previous deployment ############
+$ docker compose down
+ Container deploy-nodejs  Stopped
+ Container deploy-nodejs  Removing
+ Container deploy-nodejs  Removed
+ Network deployment_appnet  Removing
+ Network deployment_appnet  Removed
+
+############ 2. BUILD AND DEPLOY all three ############
+$ docker compose up -d --build
+
+#40 [python] resolving provenance for metadata file
+#40 DONE 0.0s
+ deploy-java:1.0  Built
+ deploy-nodejs:1.0  Built
+ deploy-python:1.0  Built
+ Network deployment_appnet  Creating
+ Network deployment_appnet  Created
+ Container deploy-java  Creating
+ Container deploy-nodejs  Creating
+ Container deploy-python  Creating
+ Container deploy-python  Created
+ Container deploy-java  Created
+ Container deploy-nodejs  Created
+ Container deploy-python  Starting
+ Container deploy-nodejs  Starting
+ Container deploy-java  Starting
+ Container deploy-java  Started
+ Container deploy-nodejs  Started
+ Container deploy-python  Started
+
+############ 3. docker compose ps ############
+$ docker compose ps
+NAME            IMAGE               COMMAND                  SERVICE   CREATED                  STATUS                                     PORTS
+deploy-java     deploy-java:1.0     "/__cacert_entrypoin…"   java      Less than a second ago   Up Less than a second (health: starting)   0.0.0.0:4003->8080/tcp, [::]:4003->8080/tcp
+deploy-nodejs   deploy-nodejs:1.0   "docker-entrypoint.s…"   nodejs    Less than a second ago   Up Less than a second (health: starting)   0.0.0.0:4001->3000/tcp, [::]:4001->3000/tcp
+deploy-python   deploy-python:1.0   "python app.py"          python    Less than a second ago   Up Less than a second (health: starting)   0.0.0.0:4002->5000/tcp, [::]:4002->5000/tcp
+
+############ 4. the network Compose created ############
+$ docker network ls | grep deployment
+NETWORK ID     NAME                DRIVER    SCOPE
+972f34dc1e29   deployment_appnet   bridge    local
+
+$ docker network inspect deployment_appnet --format "{{range .Containers}}{{.Name}} {{.IPv4Address}}{{println}}{{end}}"
+deploy-nodejs 172.18.0.3/16
+deploy-java 172.18.0.2/16
+deploy-python 172.18.0.4/16
+
+
+############ 5. WAIT for each service to become ready ############
+nodejs   ready after 1s
+python   ready after 2s
+java     ready after 1s
+
+############ 6. VERIFY all three respond ############
+nodejs   port 4001  HTTP 200  — Hello World — Node.js
+python   port 4002  HTTP 200  — Hello World — Python
+java     port 4003  HTTP 200  — Hello World — Java
+
+############ 7. service-to-service DNS inside the compose network ############
+Compose puts all three on one network and registers each SERVICE NAME in DNS,
+so containers reach each other by name — no IP addresses, no --link.
+
+$ docker compose exec -T nodejs wget -qO- http://python:5000/health
+{"app":"python-app","status":"ok"}
+
+$ docker compose exec -T python python -c "import urllib.request; print(urllib.request.urlopen(\"http://java:8080/health\").read().decode())"
+{"status":"ok","app":"java-app"}
+
+############ 8. logs from all three services ############
+$ docker compose logs --tail=3
+deploy-java  | java-app listening on http://0.0.0.0:8080
+deploy-python  | 192.168.65.1 - - [03/Sep/2026 17:47:23] "GET / HTTP/1.1" 200 -
+deploy-python  | 192.168.65.1 - - [03/Sep/2026 17:47:23] "GET / HTTP/1.1" 200 -
+deploy-python  | 172.18.0.3 - - [03/Sep/2026 17:47:23] "GET /health HTTP/1.1" 200 -
+deploy-nodejs  | nodejs-app listening on http://0.0.0.0:3000

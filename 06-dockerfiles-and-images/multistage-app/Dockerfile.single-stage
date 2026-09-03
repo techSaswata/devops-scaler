@@ -1,0 +1,17 @@
+# =============================================================================
+#  SINGLE-STAGE BUILD — kept only for the size comparison in the README.
+#
+#  It works, but it ships the entire Go toolchain, the module cache and the
+#  source code to production. Do not do this.
+# =============================================================================
+FROM golang:1.22-alpine
+
+WORKDIR /app
+COPY go.mod ./
+RUN go mod download
+COPY main.go ./
+RUN CGO_ENABLED=0 GOOS=linux go build -o server main.go
+
+ENV PORT=8080
+EXPOSE 8080
+CMD ["./server"]
