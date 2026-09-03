@@ -1,0 +1,126 @@
+############ SETUP: one tracked file, committed ############
+$ git log --oneline
+d364fba Initial commit: add tracked.txt
+
+$ cat tracked.txt
+version 1
+
+##################################################################
+#  EXPERIMENT A:  git commit -m   (WITHOUT -a)                    #
+##################################################################
+
+--- modify the tracked file, and create a NEW untracked file ---
+
+$ git status --short
+ M tracked.txt
+?? untracked.txt
+  M = modified but NOT staged   ?? = untracked
+
+$ git commit -m 'try to commit without staging'
+On branch main
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   tracked.txt
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	untracked.txt
+
+no changes added to commit (use "git add" and/or "git commit -a")
+
+>>>> NOTHING WAS COMMITTED. 'git commit -m' only commits what is in the
+>>>> STAGING AREA (the index). We never ran 'git add', so the index is empty.
+
+$ git log --oneline
+d364fba Initial commit: add tracked.txt
+
+--- the correct 2-step way with plain 'git commit -m' ---
+$ git add tracked.txt
+$ git status --short
+M  tracked.txt
+?? untracked.txt
+  M in the LEFT column = staged
+
+$ git commit -m 'commit -m: staged change only'
+[main 067d16f] commit -m: staged change only
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+$ git status --short
+?? untracked.txt
+>>>> untracked.txt is STILL not committed. Correct: it was never added.
+
+##################################################################
+#  EXPERIMENT B:  git commit -a -m                                #
+##################################################################
+
+--- modify the tracked file again (untracked.txt still lying around) ---
+
+$ git status --short
+ M tracked.txt
+?? untracked.txt
+
+$ git commit -a -m 'commit -a -m: auto-stage tracked files'
+[main cabc874] commit -a -m: auto-stage tracked files
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+>>>> IT WORKED WITH NO 'git add'. -a auto-staged the modified TRACKED file.
+
+$ git status --short
+?? untracked.txt
+
+>>>> BUT untracked.txt is STILL uncommitted!
+>>>> -a does NOT pick up NEW (untracked) files. This is the key limitation.
+
+##################################################################
+#  EXPERIMENT C:  does -a handle DELETIONS?                       #
+##################################################################
+--- add a second tracked file, commit it, then delete it ---
+
+$ rm doomed.txt
+$ git status --short
+ D doomed.txt
+?? untracked.txt
+  D = deleted, not staged
+
+$ git commit -a -m 'commit -a: also stages deletions'
+[main b409ad9] commit -a: also stages deletions
+ 1 file changed, 1 deletion(-)
+ delete mode 100644 doomed.txt
+
+$ git status --short
+?? untracked.txt
+>>>> YES: -a stages MODIFICATIONS and DELETIONS of tracked files.
+
+##################################################################
+#  Getting untracked.txt in requires an explicit 'git add'        #
+##################################################################
+$ git add untracked.txt && git commit -m 'add the new file explicitly'
+$ git status --short   (now clean)
+(no output above = working tree clean)
+
+##################################################################
+#  SUMMARY                                                        #
+##################################################################
+
+$ git log --oneline
+d948d1a add the new file explicitly
+b409ad9 commit -a: also stages deletions
+d26dcba add doomed.txt
+cabc874 commit -a -m: auto-stage tracked files
+067d16f commit -m: staged change only
+d364fba Initial commit: add tracked.txt
+
+
+                      | git commit -m         | git commit -a -m
+  --------------------|-----------------------|--------------------------
+  Modified TRACKED    | needs `git add` first | staged AUTOMATICALLY
+  Deleted TRACKED     | needs `git add`/`rm`  | staged AUTOMATICALLY
+  NEW (untracked)     | needs `git add`       | STILL needs `git add`  <-- !!
+  Staged changes      | committed             | committed
+  Skips staging area? | no                    | yes, for tracked files only
+
+  Mental model: `-a` means "git add -u" (update tracked) immediately before
+  committing. It is NOT "git add -A" / "git add ." — new files are never
+  included. That is the single most common misconception about this flag.
+

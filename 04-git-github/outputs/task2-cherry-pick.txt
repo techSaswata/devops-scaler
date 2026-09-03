@@ -1,0 +1,212 @@
+##################################################################
+#  STEP 1: create 3 commits on main                               #
+##################################################################
+  committed C1
+  committed C2
+  committed C3
+
+##################################################################
+#  STEP 2: view the commits with git log                          #
+##################################################################
+
+$ git log --oneline
+d00d798 C3: document setup in README
+2eb26f1 C2: add app.py
+eab129f C1: add README
+
+$ git log --oneline --graph --decorate
+* d00d798 (HEAD -> main) C3: document setup in README
+* 2eb26f1 C2: add app.py
+* eab129f C1: add README
+
+$ git log --stat -1
+commit d00d79802b0ba6636028f71ee563193d7f09170f
+Author: Saswata Das <support@symbiotes.in>
+Date:   Thu Sep 3 22:53:24 2026 +0530
+
+    C3: document setup in README
+
+ README.md | 3 +++
+ 1 file changed, 3 insertions(+)
+
+##################################################################
+#  STEP 3: create a new branch and switch to it                   #
+##################################################################
+
+$ git checkout -b feature
+Switched to a new branch 'feature'
+
+$ git branch
+* feature
+  main
+
+##################################################################
+#  STEP 4: make 3 commits on the feature branch                   #
+##################################################################
+  committed F1 (adds utils.py)
+  committed F2 (adds .gitignore)  <-- the target
+  committed F3 (depends on F1 — it imports utils)
+
+##################################################################
+#  STEP 5: git log to IDENTIFY the specific commit                #
+##################################################################
+
+$ git log --oneline
+6cfcc71 F3: rewrite app.py to use utils.greet()
+fb1c045 F2: add .gitignore  <-- THIS is the one we will cherry-pick
+8b8f149 F1: add utils.py with greet()
+d00d798 C3: document setup in README
+2eb26f1 C2: add app.py
+eab129f C1: add README
+
+$ git log --oneline --graph --decorate --all
+* 6cfcc71 (HEAD -> feature) F3: rewrite app.py to use utils.greet()
+* fb1c045 F2: add .gitignore  <-- THIS is the one we will cherry-pick
+* 8b8f149 F1: add utils.py with greet()
+* d00d798 (main) C3: document setup in README
+* 2eb26f1 C2: add app.py
+* eab129f C1: add README
+
+--- find the commit that adds .gitignore ---
+$ git log --oneline --all -- .gitignore
+fb1c045 F2: add .gitignore  <-- THIS is the one we will cherry-pick
+
+Identified target commit: fb1c045
+
+$ git show --stat fb1c045
+commit fb1c0451201e2367d994e9fe4b461d33874f9224
+Author: Saswata Das <support@symbiotes.in>
+Date:   Thu Sep 3 22:53:24 2026 +0530
+
+    F2: add .gitignore  <-- THIS is the one we will cherry-pick
+
+ .gitignore | 3 +++
+ 1 file changed, 3 insertions(+)
+
+##################################################################
+#  STEP 6: switch back to main and CHERRY-PICK that one commit    #
+##################################################################
+
+$ git checkout main
+Switched to branch 'main'
+
+--- BEFORE: main does NOT have .gitignore ---
+$ ls -a
+.
+..
+.git
+README.md
+app.py
+$ git log --oneline
+d00d798 C3: document setup in README
+2eb26f1 C2: add app.py
+eab129f C1: add README
+
+$ git cherry-pick fb1c045
+[main fa940b9] F2: add .gitignore  <-- THIS is the one we will cherry-pick
+ Date: Thu Sep 3 22:53:24 2026 +0530
+ 1 file changed, 3 insertions(+)
+ create mode 100644 .gitignore
+
+##################################################################
+#  STEP 7: VERIFY the change is now on main                       #
+##################################################################
+
+--- AFTER: .gitignore now exists on main ---
+$ ls -a
+.
+..
+.git
+.gitignore
+README.md
+app.py
+
+$ cat .gitignore
+__pycache__/
+*.pyc
+.env
+
+$ git log --oneline
+fa940b9 F2: add .gitignore  <-- THIS is the one we will cherry-pick
+d00d798 C3: document setup in README
+2eb26f1 C2: add app.py
+eab129f C1: add README
+
+$ git log --oneline --graph --decorate --all
+* 6cfcc71 (feature) F3: rewrite app.py to use utils.greet()
+* fb1c045 F2: add .gitignore  <-- THIS is the one we will cherry-pick
+* 8b8f149 F1: add utils.py with greet()
+| * fa940b9 (HEAD -> main) F2: add .gitignore  <-- THIS is the one we will cherry-pick
+|/  
+* d00d798 C3: document setup in README
+* 2eb26f1 C2: add app.py
+* eab129f C1: add README
+
+--- proof the file is tracked on main, not just sitting on disk ---
+$ git ls-files
+.gitignore
+README.md
+app.py
+
+$ git log --oneline main -- .gitignore
+fa940b9 F2: add .gitignore  <-- THIS is the one we will cherry-pick
+
+--- the cherry-picked commit has a NEW hash (different commit object) ---
+original on feature : fb1c045
+copy on main        : fa940b9
+
+$ git show --stat HEAD
+commit fa940b988dbb509bb757cf8257b69133a71c0387
+Author: Saswata Das <support@symbiotes.in>
+Date:   Thu Sep 3 22:53:24 2026 +0530
+
+    F2: add .gitignore  <-- THIS is the one we will cherry-pick
+
+ .gitignore | 3 +++
+ 1 file changed, 3 insertions(+)
+
+--- but the CONTENT (the tree/patch) is identical ---
+$ diff <(git show fb1c045 -- .gitignore) <(git show HEAD -- .gitignore)
+IDENTICAL patch — same change, new commit.
+
+--- F1 and F3 were NOT brought over: only the one commit was picked ---
+$ ls
+README.md
+app.py
+$ git log --oneline main
+fa940b9 F2: add .gitignore  <-- THIS is the one we will cherry-pick
+d00d798 C3: document setup in README
+2eb26f1 C2: add app.py
+eab129f C1: add README
+>> utils.py (F1) and the app.py rewrite (F3) are still only on 'feature'.
+
+##################################################################
+#  BONUS: what a cherry-pick CONFLICT looks like                  #
+##################################################################
+--- cherry-pick F3, which rewrites app.py and needs utils.py ---
+$ git cherry-pick 6cfcc71
+[main f777d52] F3: rewrite app.py to use utils.greet()
+ Date: Thu Sep 3 22:53:24 2026 +0530
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+>> It applied cleanly, BUT the code is now BROKEN on main:
+$ cat app.py
+from utils import greet
+
+print(greet("DevOps"))
+$ ls utils.py
+ls: utils.py: No such file or directory
+utils.py does NOT exist on main!
+
+>> This is the real lesson: cherry-pick copies ONE commit, not its
+>> dependencies. app.py imports utils.greet, but F1 (which created
+>> utils.py) was never picked. Git cannot know that.
+
+$ git reset --hard HEAD~1   # undo it
+HEAD is now at fa940b9 F2: add .gitignore  <-- THIS is the one we will cherry-pick
+
+$ git log --oneline main   (final state)
+fa940b9 F2: add .gitignore  <-- THIS is the one we will cherry-pick
+d00d798 C3: document setup in README
+2eb26f1 C2: add app.py
+eab129f C1: add README
