@@ -1,0 +1,74 @@
+############ STEP 1: create the original file ############
+Hello from the original file
+
+--- inode + link count of original.txt ---
+12952 -rw-r--r-- 1 root root 29 Sep  3 16:50 original.txt
+
+############ STEP 2: create a HARD link ############
+$ ln original.txt hardlink.txt
+12952 -rw-r--r-- 2 root root 29 Sep  3 16:50 hardlink.txt
+12952 -rw-r--r-- 2 root root 29 Sep  3 16:50 original.txt
+>> Same inode number, and the link count went 1 -> 2.
+
+############ STEP 3: create a SOFT link (symlink) ############
+$ ln -s original.txt softlink.txt
+12952 -rw-r--r-- 2 root root 29 Sep  3 16:50 hardlink.txt
+12952 -rw-r--r-- 2 root root 29 Sep  3 16:50 original.txt
+12953 lrwxrwxrwx 1 root root 12 Sep  3 16:50 softlink.txt -> original.txt
+>> softlink.txt has its OWN inode, type 'l', and shows -> original.txt
+
+--- stat comparison ---
+name=original.txt  inode=12952  links=2  type=regular file  size=29
+name=hardlink.txt  inode=12952  links=2  type=regular file  size=29
+name=softlink.txt  inode=12953  links=1  type=symbolic link  size=12
+
+############ STEP 4: edit through each link ############
+--- contents of original.txt after writing through both links ---
+Hello from the original file
+line added via hardlink
+line added via softlink
+>> Both links wrote into the SAME file data.
+
+############ STEP 5: delete the ORIGINAL and see what survives ############
+$ rm original.txt
+
+--- hard link after original is gone ---
+12952 -rw-r--r-- 1 root root 77 Sep  3 16:50 hardlink.txt
+Hello from the original file
+line added via hardlink
+line added via softlink
+>> HARD LINK STILL WORKS. It is a second name for the same inode;
+>> the data is freed only when the link count hits 0.
+
+--- soft link after original is gone ---
+12953 lrwxrwxrwx 1 root root 12 Sep  3 16:50 softlink.txt -> original.txt
+$ cat softlink.txt
+cat: softlink.txt: No such file or directory
+>> SOFT LINK IS BROKEN (dangling). It only stored the PATH 'original.txt'.
+$ test -e softlink.txt  # follows the link
+target does NOT exist -> dangling symlink
+$ test -L softlink.txt  # the link itself
+the symlink file itself still exists
+
+############ STEP 6: things a hard link CANNOT do ############
+$ ln somedir dirhardlink   # hard link to a directory
+ln: somedir: hard link not allowed for directory
+>> Not permitted: hard links to directories are forbidden (would break the FS tree).
+
+$ ln -s somedir dirsoftlink  # soft link to a directory works fine
+lrwxrwxrwx 1 root root 7 Sep  3 16:50 dirsoftlink -> somedir
+
+############ STEP 7: cross-filesystem behaviour ############
+$ df /tmp  and  df /   (hard links cannot cross a filesystem boundary)
+    Filesystem      Size  Used Avail Use% Mounted on
+    overlay         453G  5.4G  424G   2% /
+    overlay         453G  5.4G  424G   2% /
+
+############ STEP 8: deleting links ############
+$ rm softlink.txt     # removes the symlink, not the target
+$ unlink hardlink.txt # removes one name; data survives while count > 0
+total 12
+drwxr-xr-x 3 root root 4096 Sep  3 16:50 .
+drwxrwxrwt 1 root root 4096 Sep  3 16:50 ..
+drwxr-xr-x 2 root root 4096 Sep  3 16:50 somedir
+>> All links removed; the file's data is now unreachable and freed.

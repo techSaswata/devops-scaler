@@ -1,0 +1,188 @@
+############ 0. What is journalctl reading? ############
+$ systemctl is-active systemd-journald
+active
+>> systemd-journald is the logging daemon. It collects messages from the kernel,
+>> from initrd, from service stdout/stderr and from syslog, and stores them in a
+>> BINARY, INDEXED journal. 'journalctl' is the query tool for that journal.
+
+$ ls /var/log/journal/*
+system.journal
+
+$ journalctl --disk-usage
+Archived and active journals take up 8.0M in the file system.
+
+############ 1. View ALL logs (oldest first) ############
+$ journalctl --no-pager | head -15
+Sep 03 16:52:50 5c6299280c8c kernel: Booting Linux on physical CPU 0x0000000000 [0x610f0000]
+Sep 03 16:52:50 5c6299280c8c kernel: Linux version 6.10.14-linuxkit (root@buildkitsandbox) (gcc (Alpine 13.2.1_git20240309) 13.2.1 20240309, GNU ld (GNU Binutils) 2.42) #1 SMP Tue Oct 14 07:32:13 UTC 2025
+Sep 03 16:52:50 5c6299280c8c kernel: Zone ranges:
+Sep 03 16:52:50 5c6299280c8c kernel:   DMA      [mem 0x0000000070000000-0x00000000ffffffff]
+Sep 03 16:52:50 5c6299280c8c kernel:   DMA32    empty
+Sep 03 16:52:50 5c6299280c8c kernel:   Normal   [mem 0x0000000100000000-0x0000000269bfffff]
+Sep 03 16:52:50 5c6299280c8c kernel: Movable zone start for each node
+Sep 03 16:52:50 5c6299280c8c kernel: Early memory node ranges
+Sep 03 16:52:50 5c6299280c8c kernel:   node   0: [mem 0x0000000070000000-0x0000000269bfffff]
+Sep 03 16:52:50 5c6299280c8c kernel: Initmem setup node 0 [mem 0x0000000070000000-0x0000000269bfffff]
+Sep 03 16:52:50 5c6299280c8c kernel: On node 0, zone Normal: 25600 pages in unavailable ranges
+Sep 03 16:52:50 5c6299280c8c kernel: psci: probing for conduit method from DT.
+Sep 03 16:52:50 5c6299280c8c kernel: psci: PSCIv1.1 detected in firmware.
+Sep 03 16:52:50 5c6299280c8c kernel: psci: Using standard PSCI v0.2 function IDs
+Sep 03 16:52:50 5c6299280c8c kernel: psci: Trusted OS migration not required
+
+############ 2. Most recent N lines ############
+$ journalctl -n 10 --no-pager
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Reached target Host and Network Name Lookups.
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Starting A high performance web server and a reverse proxy server...
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Started A high performance web server and a reverse proxy server.
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Reached target Multi-User System.
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Reached target Graphical Interface.
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Starting Record Runlevel Change in UTMP...
+Sep 03 16:52:50 5c6299280c8c systemd[1]: systemd-update-utmp-runlevel.service: Deactivated successfully.
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Finished Record Runlevel Change in UTMP.
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Startup finished in 141ms.
+Sep 03 16:53:05 5c6299280c8c systemd-resolved[35]: Clock change detected. Flushing caches.
+
+############ 3. Kernel messages only (like dmesg) ############
+$ journalctl -k --no-pager | head -8
+Sep 03 16:52:50 5c6299280c8c kernel: Booting Linux on physical CPU 0x0000000000 [0x610f0000]
+Sep 03 16:52:50 5c6299280c8c kernel: Linux version 6.10.14-linuxkit (root@buildkitsandbox) (gcc (Alpine 13.2.1_git20240309) 13.2.1 20240309, GNU ld (GNU Binutils) 2.42) #1 SMP Tue Oct 14 07:32:13 UTC 2025
+Sep 03 16:52:50 5c6299280c8c kernel: Zone ranges:
+Sep 03 16:52:50 5c6299280c8c kernel:   DMA      [mem 0x0000000070000000-0x00000000ffffffff]
+Sep 03 16:52:50 5c6299280c8c kernel:   DMA32    empty
+Sep 03 16:52:50 5c6299280c8c kernel:   Normal   [mem 0x0000000100000000-0x0000000269bfffff]
+Sep 03 16:52:50 5c6299280c8c kernel: Movable zone start for each node
+Sep 03 16:52:50 5c6299280c8c kernel: Early memory node ranges
+
+############ 4. LOGS FOR A SPECIFIC SERVICE  <-- the required task ############
+$ systemctl status nginx --no-pager
+● nginx.service - A high performance web server and a reverse proxy server
+     Loaded: loaded (/lib/systemd/system/nginx.service; enabled; vendor preset: enabled)
+     Active: active (running) since Thu 2026-09-03 16:52:50 UTC; 27s ago
+       Docs: man:nginx(8)
+    Process: 42 ExecStartPre=/usr/sbin/nginx -t -q -g daemon on; master_process on; (code=exited, status=0/SUCCESS)
+    Process: 43 ExecStart=/usr/sbin/nginx -g daemon on; master_process on; (code=exited, status=0/SUCCESS)
+   Main PID: 44 (nginx)
+      Tasks: 11 (limit: 9397)
+     Memory: 8.1M
+        CPU: 11ms
+     CGroup: /docker/5c6299280c8caa211c65e7fc54abdfaa4ef12feaca84f74a3c766211667d15a2/system.slice/nginx.service
+             ├─44 "nginx: master process /usr/sbin/nginx -g daemon on; master_process on;"
+
+$ journalctl -u nginx --no-pager
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Starting A high performance web server and a reverse proxy server...
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Started A high performance web server and a reverse proxy server.
+
+--- restart the service, then re-read ITS logs ---
+$ systemctl restart nginx
+$ journalctl -u nginx -n 20 --no-pager
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Starting A high performance web server and a reverse proxy server...
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Started A high performance web server and a reverse proxy server.
+Sep 03 16:53:17 5c6299280c8c systemd[1]: Stopping A high performance web server and a reverse proxy server...
+Sep 03 16:53:17 5c6299280c8c systemd[1]: nginx.service: Deactivated successfully.
+Sep 03 16:53:17 5c6299280c8c systemd[1]: Stopped A high performance web server and a reverse proxy server.
+Sep 03 16:53:17 5c6299280c8c systemd[1]: Starting A high performance web server and a reverse proxy server...
+Sep 03 16:53:17 5c6299280c8c systemd[1]: Started A high performance web server and a reverse proxy server.
+
+############ 5. Filter by PRIORITY (severity) ############
+priorities: 0 emerg  1 alert  2 crit  3 err  4 warning  5 notice  6 info  7 debug
+$ journalctl -p err --no-pager -n 10
+-- No entries --
+
+############ 6. Filter by TIME ############
+$ journalctl --since "10 minutes ago" --no-pager -n 5
+Sep 03 16:52:50 5c6299280c8c kernel: Booting Linux on physical CPU 0x0000000000 [0x610f0000]
+Sep 03 16:52:50 5c6299280c8c kernel: Linux version 6.10.14-linuxkit (root@buildkitsandbox) (gcc (Alpine 13.2.1_git20240309) 13.2.1 20240309, GNU ld (GNU Binutils) 2.42) #1 SMP Tue Oct 14 07:32:13 UTC 2025
+Sep 03 16:52:50 5c6299280c8c kernel: Zone ranges:
+Sep 03 16:52:50 5c6299280c8c kernel:   DMA      [mem 0x0000000070000000-0x00000000ffffffff]
+Sep 03 16:52:50 5c6299280c8c kernel:   DMA32    empty
+
+$ journalctl --since today -u nginx --no-pager -n 5
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Starting A high performance web server and a reverse proxy server...
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Started A high performance web server and a reverse proxy server.
+Sep 03 16:53:17 5c6299280c8c systemd[1]: Stopping A high performance web server and a reverse proxy server...
+Sep 03 16:53:17 5c6299280c8c systemd[1]: nginx.service: Deactivated successfully.
+Sep 03 16:53:17 5c6299280c8c systemd[1]: Stopped A high performance web server and a reverse proxy server.
+
+############ 7. Provoke a REAL failure and read the error from the journal ############
+--- break the nginx config on purpose ---
+$ systemctl restart nginx   (this will fail)
+Job for nginx.service failed because the control process exited with error code.
+See "systemctl status nginx.service" and "journalctl -xeu nginx.service" for details.
+
+$ systemctl is-failed nginx
+failed
+
+$ journalctl -u nginx -n 15 --no-pager   <-- the journal shows WHY it failed
+Sep 03 16:52:50 5c6299280c8c systemd[1]: Started A high performance web server and a reverse proxy server.
+Sep 03 16:53:17 5c6299280c8c systemd[1]: Stopping A high performance web server and a reverse proxy server...
+Sep 03 16:53:17 5c6299280c8c systemd[1]: nginx.service: Deactivated successfully.
+Sep 03 16:53:17 5c6299280c8c systemd[1]: Stopped A high performance web server and a reverse proxy server.
+Sep 03 16:53:17 5c6299280c8c systemd[1]: Starting A high performance web server and a reverse proxy server...
+Sep 03 16:53:17 5c6299280c8c systemd[1]: Started A high performance web server and a reverse proxy server.
+Sep 03 16:53:18 5c6299280c8c systemd[1]: Stopping A high performance web server and a reverse proxy server...
+Sep 03 16:53:18 5c6299280c8c systemd[1]: nginx.service: Deactivated successfully.
+Sep 03 16:53:18 5c6299280c8c systemd[1]: Stopped A high performance web server and a reverse proxy server.
+Sep 03 16:53:18 5c6299280c8c systemd[1]: Starting A high performance web server and a reverse proxy server...
+Sep 03 16:53:18 5c6299280c8c nginx[108]: nginx: [emerg] unexpected end of file, expecting ";" or "}" in /etc/nginx/conf.d/broken.conf:2
+Sep 03 16:53:18 5c6299280c8c nginx[108]: nginx: configuration file /etc/nginx/nginx.conf test failed
+Sep 03 16:53:18 5c6299280c8c systemd[1]: nginx.service: Control process exited, code=exited, status=1/FAILURE
+Sep 03 16:53:18 5c6299280c8c systemd[1]: nginx.service: Failed with result 'exit-code'.
+Sep 03 16:53:18 5c6299280c8c systemd[1]: Failed to start A high performance web server and a reverse proxy server.
+
+--- fix it and confirm recovery is also logged ---
+nginx restarted OK
+Sep 03 16:53:18 5c6299280c8c nginx[108]: nginx: configuration file /etc/nginx/nginx.conf test failed
+Sep 03 16:53:18 5c6299280c8c systemd[1]: nginx.service: Control process exited, code=exited, status=1/FAILURE
+Sep 03 16:53:18 5c6299280c8c systemd[1]: nginx.service: Failed with result 'exit-code'.
+Sep 03 16:53:18 5c6299280c8c systemd[1]: Failed to start A high performance web server and a reverse proxy server.
+Sep 03 16:53:20 5c6299280c8c systemd[1]: Starting A high performance web server and a reverse proxy server...
+Sep 03 16:53:20 5c6299280c8c systemd[1]: Started A high performance web server and a reverse proxy server.
+
+############ 8. Useful output formats ############
+$ journalctl -u nginx -n 1 -o json-pretty --no-pager
+{
+	"SYSLOG_FACILITY" : "3",
+	"_COMM" : "systemd",
+	"_SYSTEMD_SLICE" : "-.slice",
+	"_TRANSPORT" : "journal",
+	"_SYSTEMD_UNIT" : "init.scope",
+	"JOB_TYPE" : "start",
+	"TID" : "1",
+	"JOB_ID" : "123",
+	"INVOCATION_ID" : "11022d8480a34bb193f0aab9734d0d3c",
+	"_CMDLINE" : "/lib/systemd/systemd",
+	"__CURSOR" : "s=1572fa845d174e76b08769787a52e997;i=2b3;b=a0297216b0a84b41a27527fa50dc2a3a;m=2116f159;t=65a96fd360482;x=8e63bc68388a2340",
+	"_BOOT_ID" : "a0297216b0a84b41a27527fa50dc2a3a",
+	"UNIT" : "nginx.service",
+	"CODE_FUNC" : "job_emit_done_message",
+	"_MACHINE_ID" : "618bc899bb4a4e21ade4e32820fddedf",
+	"__REALTIME_TIMESTAMP" : "1788454400033922",
+	"CODE_LINE" : "713",
+	"CODE_FILE" : "src/core/job.c",
+	"MESSAGE_ID" : "39f53479d3a045ac8e11786248231fbf",
+	"SYSLOG_IDENTIFIER" : "systemd",
+	"_CAP_EFFECTIVE" : "1ffffffffff",
+
+$ journalctl -u nginx -n 3 -o short-iso --no-pager
+2026-09-03T16:53:18+0000 5c6299280c8c systemd[1]: Failed to start A high performance web server and a reverse proxy server.
+2026-09-03T16:53:20+0000 5c6299280c8c systemd[1]: Starting A high performance web server and a reverse proxy server...
+2026-09-03T16:53:20+0000 5c6299280c8c systemd[1]: Started A high performance web server and a reverse proxy server.
+
+############ 9. Boot-scoped + maintenance ############
+$ journalctl --list-boots --no-pager
+ 0 a0297216b0a84b41a27527fa50dc2a3a Thu 2026-09-03 16:52:50 UTC—Thu 2026-09-03 16:53:20 UTC
+
+$ journalctl -b -n 5 --no-pager   # current boot only
+Sep 03 16:53:18 5c6299280c8c systemd[1]: nginx.service: Control process exited, code=exited, status=1/FAILURE
+Sep 03 16:53:18 5c6299280c8c systemd[1]: nginx.service: Failed with result 'exit-code'.
+Sep 03 16:53:18 5c6299280c8c systemd[1]: Failed to start A high performance web server and a reverse proxy server.
+Sep 03 16:53:20 5c6299280c8c systemd[1]: Starting A high performance web server and a reverse proxy server...
+Sep 03 16:53:20 5c6299280c8c systemd[1]: Started A high performance web server and a reverse proxy server.
+
+$ journalctl --vacuum-time=2d      # retention / cleanup
+Vacuuming done, freed 0B of archived journals from /var/log/journal/618bc899bb4a4e21ade4e32820fddedf.
+Vacuuming done, freed 0B of archived journals from /var/log/journal.
+Vacuuming done, freed 0B of archived journals from /run/log/journal.
+
+>> NOTE: 'journalctl -f' follows logs live (like tail -f) — not run here
+>> because it never exits. 'journalctl -u nginx -f' is the everyday debug command.

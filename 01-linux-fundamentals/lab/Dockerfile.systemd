@@ -1,0 +1,25 @@
+# A real systemd + journald environment so journalctl has an actual journal to read.
+# Plain containers have no PID 1 systemd, so `journalctl` would just say
+# "No journal files were found." This image boots systemd properly.
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV container=docker
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        systemd systemd-sysv nginx curl vim-tiny iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Strip the units that are meaningless (and noisy) inside a container
+RUN find /etc/systemd/system /lib/systemd/system \
+        -path /lib/systemd/system/systemd-tmpfiles-setup.service -prune -o \
+        \( -name '*udev*' -o -name '*getty*' -o -name '*mount*' \) -exec rm -f {} + 2>/dev/null || true
+
+# Persist the journal to disk so it survives and is queryable
+RUN mkdir -p /var/log/journal && systemd-tmpfiles --create 2>/dev/null || true
+
+RUN systemctl enable nginx
+
+VOLUME [ "/sys/fs/cgroup" ]
+STOPSIGNAL SIGRTMIN+3
+CMD ["/lib/systemd/systemd"]
