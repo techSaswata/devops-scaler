@@ -1,0 +1,432 @@
+
+==================== 1. INTERFACES — ip addr / ifconfig ====================
+
+$ ip addr show
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback xx:xx:xx:xx:xx:xx brd xx:xx:xx:xx:xx:xx
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: tunl0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN group default qlen 1000
+    link/ipip 0.0.0.0 brd 0.0.0.0
+3: gre0@NONE: <NOARP> mtu 1476 qdisc noop state DOWN group default qlen 1000
+    link/gre 0.0.0.0 brd 0.0.0.0
+4: gretap0@NONE: <BROADCAST,MULTICAST> mtu 1462 qdisc noop state DOWN group default qlen 1000
+    link/ether xx:xx:xx:xx:xx:xx brd xx:xx:xx:xx:xx:xx
+5: erspan0@NONE: <BROADCAST,MULTICAST> mtu 1450 qdisc noop state DOWN group default qlen 1000
+    link/ether xx:xx:xx:xx:xx:xx brd xx:xx:xx:xx:xx:xx
+6: ip_vti0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN group default qlen 1000
+    link/ipip 0.0.0.0 brd 0.0.0.0
+7: ip6_vti0@NONE: <NOARP> mtu 1428 qdisc noop state DOWN group default qlen 1000
+    link/tunnel6 :: brd :: permaddr fef1:df86:111c::
+8: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN group default qlen 1000
+    link/sit 0.0.0.0 brd 0.0.0.0
+
+$ ip -brief addr show
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+tunl0@NONE       DOWN           
+gre0@NONE        DOWN           
+gretap0@NONE     DOWN           
+erspan0@NONE     DOWN           
+ip_vti0@NONE     DOWN           
+ip6_vti0@NONE    DOWN           
+sit0@NONE        DOWN           
+ip6tnl0@NONE     DOWN           
+ip6gre0@NONE     DOWN           
+eth0@if49        UP             172.17.0.2/16 
+
+$ ifconfig
+eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 65535
+        inet 172.17.0.2  netmask 255.255.0.0  broadcast 172.17.255.255
+        ether xx:xx:xx:xx:xx:xx  txqueuelen 0  (Ethernet)
+        RX packets 3  bytes 302 (302.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 1  bytes 42 (42.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10<host>
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 0  bytes 0 (0.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 0  bytes 0 (0.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+
+$ ip link show
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/loopback xx:xx:xx:xx:xx:xx brd xx:xx:xx:xx:xx:xx
+2: tunl0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ipip 0.0.0.0 brd 0.0.0.0
+3: gre0@NONE: <NOARP> mtu 1476 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/gre 0.0.0.0 brd 0.0.0.0
+4: gretap0@NONE: <BROADCAST,MULTICAST> mtu 1462 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether xx:xx:xx:xx:xx:xx brd xx:xx:xx:xx:xx:xx
+5: erspan0@NONE: <BROADCAST,MULTICAST> mtu 1450 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether xx:xx:xx:xx:xx:xx brd xx:xx:xx:xx:xx:xx
+6: ip_vti0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ipip 0.0.0.0 brd 0.0.0.0
+7: ip6_vti0@NONE: <NOARP> mtu 1428 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/tunnel6 :: brd :: permaddr fef1:df86:111c::
+8: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/sit 0.0.0.0 brd 0.0.0.0
+9: ip6tnl0@NONE: <NOARP> mtu 1452 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/tunnel6 :: brd :: permaddr 26c9:8dda:79ce::
+10: ip6gre0@NONE: <NOARP> mtu 1448 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/gre6 :: brd :: permaddr e2fa:542f:594c::
+
+$ hostname
+282ce4cefab1
+
+$ hostname -I
+172.17.0.2 
+
+$ cat /sys/class/net/eth0/address
+xx:xx:xx:xx:xx:xx
+
+==================== 2. ROUTING TABLE — ip route / route ====================
+
+$ ip route show
+default via 172.17.0.1 dev eth0 
+172.17.0.0/16 dev eth0 proto kernel scope link src 172.17.0.2 
+
+$ ip route get 8.8.8.8
+8.8.8.8 via 172.17.0.1 dev eth0 src 172.17.0.2 uid 0 
+    cache 
+
+$ route -n
+Kernel IP routing table
+Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+0.0.0.0         172.17.0.1      0.0.0.0         UG    0      0        0 eth0
+172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 eth0
+
+>> 'default via <gw> dev eth0' is the DEFAULT GATEWAY: where packets go
+>> when no more specific route matches.
+
+==================== 3. ARP / NEIGHBOUR TABLE ====================
+
+$ ip neigh show
+
+$ arp -a
+
+==================== 4. DNS RESOLUTION — dig / nslookup / host ====================
+
+$ cat /etc/resolv.conf
+# Generated by Docker Engine.
+# This file can be edited; Docker Engine will not make further changes once it
+# has been modified.
+
+nameserver 192.168.65.7
+
+# Based on host file: '/etc/resolv.conf' (legacy)
+# Overrides: []
+
+$ cat /etc/hosts
+127.0.0.1	localhost
+::1	localhost ip6-localhost ip6-loopback
+fe00::	ip6-localnet
+ff00::	ip6-mcastprefix
+ff02::1	ip6-allnodes
+ff02::2	ip6-allrouters
+172.17.0.2	282ce4cefab1
+
+$ dig github.com
+
+; <<>> DiG 9.18.39-0ubuntu0.22.04.6-Ubuntu <<>> github.com
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 8860
+;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
+
+;; QUESTION SECTION:
+;github.com.			IN	A
+
+;; ANSWER SECTION:
+github.com.		18	IN	A	20.207.73.82
+
+;; Query time: 1074 msec
+;; SERVER: 192.168.65.7#53(192.168.65.7) (UDP)
+;; WHEN: Thu Sep 03 17:15:19 UTC 2026
+;; MSG SIZE  rcvd: 54
+
+
+$ dig +short github.com
+20.207.73.82
+
+$ dig +short google.com A
+142.251.221.238
+
+$ dig +short google.com AAAA
+
+$ dig +short google.com MX
+10 smtp.google.com.
+
+$ dig +short -x 8.8.8.8
+dns.google.
+
+$ nslookup github.com
+Server:		192.168.65.7
+Address:	192.168.65.7#53
+
+Non-authoritative answer:
+Name:	github.com
+Address: 20.207.73.82
+
+
+$ host github.com
+github.com has address 20.207.73.82
+;; communications error to 192.168.65.7#53: timed out
+;; communications error to 192.168.65.7#53: timed out
+;; no servers could be reached
+
+$ getent hosts github.com
+20.207.73.82    github.com
+
+==================== 5. CONNECTIVITY — ping ====================
+
+$ ping -c 4 8.8.8.8
+PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
+64 bytes from 8.8.8.8: icmp_seq=1 ttl=63 time=14.9 ms
+64 bytes from 8.8.8.8: icmp_seq=2 ttl=63 time=10.8 ms
+64 bytes from 8.8.8.8: icmp_seq=3 ttl=63 time=10.4 ms
+64 bytes from 8.8.8.8: icmp_seq=4 ttl=63 time=11.3 ms
+
+--- 8.8.8.8 ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 3019ms
+rtt min/avg/max/mdev = 10.432/11.865/14.908/1.783 ms
+
+$ ping -c 4 google.com
+PING google.com (142.251.221.238) 56(84) bytes of data.
+64 bytes from pnbomb-bk-in-f14.1e100.net (142.251.221.238): icmp_seq=1 ttl=63 time=62.9 ms
+64 bytes from pnbomb-bk-in-f14.1e100.net (142.251.221.238): icmp_seq=2 ttl=63 time=26.8 ms
+64 bytes from pnbomb-bk-in-f14.1e100.net (142.251.221.238): icmp_seq=3 ttl=63 time=28.3 ms
+64 bytes from pnbomb-bk-in-f14.1e100.net (142.251.221.238): icmp_seq=4 ttl=63 time=60.1 ms
+
+--- google.com ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 6248ms
+rtt min/avg/max/mdev = 26.831/44.549/62.931/17.016 ms
+
+>> ping sends ICMP Echo Request and waits for Echo Reply.
+>> 'time=' is round-trip latency; '0% packet loss' means the path is clean.
+
+==================== 6. PATH TO A HOST — traceroute ====================
+
+$ traceroute -m 12 -w 1 google.com
+traceroute to google.com (142.251.221.238), 12 hops max, 60 byte packets
+ 1  172.17.0.1 (172.17.0.1)  0.081 ms  0.021 ms  0.009 ms
+ 2  * * *
+ 3  * * *
+ 4  * * *
+ 5  * * *
+ 6  * * *
+ 7  * * *
+ 8  * * *
+ 9  * * *
+10  * * *
+11  * * *
+12  * * *
+
+>> Each hop is a router. traceroute increments the TTL so each router in turn
+>> replies with 'time exceeded', revealing the path. '*' = no reply (filtered).
+
+==================== 7. SOCKETS & LISTENING PORTS — ss / netstat ====================
+
+$ ss -tuln
+Netid State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+tcp   LISTEN 0      1            0.0.0.0:9000      0.0.0.0:*          
+
+$ ss -tulnp
+Netid State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+tcp   LISTEN 0      1            0.0.0.0:9000      0.0.0.0:*    users:(("nc",pid=101,fd=3))
+
+$ netstat -tuln
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State      
+tcp        0      0 0.0.0.0:9000            0.0.0.0:*               LISTEN     
+
+$ netstat -tulnp
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    
+tcp        0      0 0.0.0.0:9000            0.0.0.0:*               LISTEN      101/nc              
+
+$ ss -s
+Total: 6
+TCP:   26 (estab 0, closed 25, orphaned 0, timewait 0)
+
+Transport Total     IP        IPv6
+RAW	  0         0         0        
+UDP	  0         0         0        
+TCP	  1         1         0        
+INET	  1         1         0        
+FRAG	  0         0         0        
+
+
+>> -t TCP  -u UDP  -l listening  -n numeric (no DNS lookups)  -p owning process
+
+==================== 8. TESTING A PORT — nc / telnet ====================
+
+$ nc -zv -w 3 google.com 443
+Connection to google.com (142.251.221.238) 443 port [tcp/https] succeeded!
+
+$ nc -zv -w 3 google.com 80
+Connection to google.com (142.251.221.238) 80 port [tcp/http] succeeded!
+
+$ nc -zv -w 2 google.com 12345
+nc: connect to google.com (142.251.221.238) port 12345 (tcp) timed out: Operation now in progress
+
+>> nc -z = scan only (send nothing), -v = verbose, -w = timeout.
+>> This is how you prove 'is the port actually open?' without a client.
+
+==================== 9. HTTP — curl / wget ====================
+
+$ curl -I https://github.com
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:--  0:00:02 --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:--  0:00:03 --:--:--     0HTTP/2 200 
+date: Thu, 03 Sep 2026 17:15:41 GMT
+content-type: text/html; charset=utf-8
+content-language: en-US
+vary: X-PJAX, X-PJAX-Container, Turbo-Visit, Turbo-Frame, X-Requested-With, X-GitHub-Client-Version, Accept-Language, Sec-Fetch-Site,Accept-Encoding, Accept, X-Requested-With
+etag: W/"66889f74626f3625b9d4fea8fce773eb"
+cache-control: max-age=0, private, must-revalidate
+strict-transport-security: max-age=31536000; includeSubdomains; preload
+x-frame-options: deny
+x-content-type-options: nosniff
+x-xss-protection: 0
+referrer-policy: origin-when-cross-origin, strict-origin-when-cross-origin
+content-security-policy: default-src 'none'; base-uri 'self'; child-src github.githubassets.com github.com/assets-cdn/worker/ github.com/assets/ gist.github.com/assets-cdn/worker/; connect-src 'self' uploads.github.com www.githubstatus.com collector.github.com raw.githubusercontent.com api.github.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com *.rel.tunnels.api.visualstudio.com wss://*.rel.tunnels.api.visualstudio.com github.githubassets.com objects-origin.githubusercontent.com copilot-proxy.githubusercontent.com proxy.individual.githubcopilot.com proxy.business.githubcopilot.com proxy.enterprise.githubcopilot.com *.actions.githubusercontent.com wss://*.actions.githubusercontent.com productionresultssa0.blob.core.windows.net productionresultssa1.blob.core.windows.net productionresultssa2.blob.core.windows.net productionresultssa3.blob.core.windows.net productionresultssa4.blob.core.windows.net productionresultssa5.blob.core.windows.net productionresultssa6.blob.core.windows.net productionresultssa7.blob.core.windows.net productionresultssa8.blob.core.windows.net productionresultssa9.blob.core.windows.net productionresultssa10.blob.core.windows.net productionresultssa11.blob.core.windows.net productionresultssa12.blob.core.windows.net productionresultssa13.blob.core.windows.net productionresultssa14.blob.core.windows.net productionresultssa15.blob.core.windows.net productionresultssa16.blob.core.windows.net productionresultssa17.blob.core.windows.net productionresultssa18.blob.core.windows.net productionresultssa19.blob.core.windows.net github-production-repository-image-32fea6.s3.amazonaws.com github-production-release-asset-2e65be.s3.amazonaws.com insights.github.com wss://alive.github.com wss://alive-staging.github.com api.githubcopilot.com api.individual.githubcopilot.com api.business.githubcopilot.com api.enterprise.githubcopilot.com wss://production-copilot-host.webpubsub.azure.com edge.fullstory.com rs.fullstory.com; font-src github.githubassets.com; form-action 'self' github.com gist.github.com copilot-workspace.githubnext.com objects-origin.githubusercontent.com; frame-ancestors 'none'; frame-src viewscreen.githubusercontent.com notebooks.githubusercontent.com www.youtube-nocookie.com; img-src 'self' data: blob: github.githubassets.com media.githubusercontent.com camo.githubusercontent.com identicons.github.com avatars.githubusercontent.com private-avatars.githubusercontent.com github-cloud.s3.amazonaws.com objects.githubusercontent.com release-assets.githubusercontent.com secured-user-images.githubusercontent.com user-images.githubusercontent.com private-user-images.githubusercontent.com opengraph.githubassets.com repository-images.githubusercontent.com marketplace-screenshots.githubusercontent.com copilotprodattachments.blob.core.windows.net/github-production-copilot-attachments/ github-production-user-asset-6210df.s3.amazonaws.com customer-stories-feed.github.com spotlights-feed.github.com explore-feed.github.com objects-origin.githubusercontent.com *.githubusercontent.com images.ctfassets.net/8aevphvgewt8/; manifest-src 'self'; media-src github.com user-images.githubusercontent.com secured-user-images.githubusercontent.com private-user-images.githubusercontent.com github-production-user-asset-6210df.s3.amazonaws.com gist.github.com github.githubassets
+  0     0    0     0    0     0      0      0 --:--:--  0:00:03 --:--:--     0
+.com assets.ctfassets.net/8aevphvgewt8/ videos.ctfassets.net/8aevphvgewt8/; script-src github.githubassets.com; style-src 'unsafe-inline' github.githubassets.com; upgrade-insecure-requests; worker-src github.githubassets.com github.com/assets-cdn/worker/ github.com/assets/ gist.github.com/assets-cdn/worker/
+server: github.com
+accept-ranges: bytes
+set-cookie: _gh_sess=%2B%2Fqi3YmzRvBVNoAwBRI88vU3H8g07u6UIWrrXYMuMpx6PoRIiDuDdJ8wGgy4JsRlB2jh5tn9x%2BiE28P%2BdQ6KiDlXtWMQQNTnxreqL23IyAEEP6d8xCs2oYKVropjixdb6Rn1iZOaaPe%2BzhnepsT%2BnuT2BYhygtGtut%2BNg0lTFlCdxwoaPV5Ks%2Fvkxk8xguGdYYuShMg71alDouezw2n3sN%2FSZNp7%2Bn1CEAnIA9Td2FBW8fO4vi1gNH6F%2FWkSVmqSEx%2F4z6x9su3qIJqr6PJqqQ%3D%3D--xbNnlzTUbcGBmu9W--GeZMjh2J7ebI0BWhScWBkQ%3D%3D; path=/; HttpOnly; secure; SameSite=Lax
+set-cookie: _octo=GH1.1.1974850388.1788455750; expires=Fri, 03 Sep 2027 17:15:50 GMT; domain=.github.com; path=/; secure; SameSite=Lax
+
+$ curl -s -o /dev/null -w 'http_code=%{http_code}\ndns=%{time_namelookup}s\nconnect=%{time_connect}s\ntls=%{time_appconnect}s\ntotal=%{time_total}s\n' https://github.com
+http_code=200
+dns=0.002718s
+connect=0.026034s
+tls=0.115533s
+total=0.333703s
+
+$ curl -s https://api.github.com/zen
+Non-blocking is better than blocking.
+$ curl -s ifconfig.me
+
+
+$ wget -qO- https://api.github.com/zen
+Non-blocking is better than blocking.
+$ wget --spider -S https://github.com 2>&1 | head -12
+Spider mode enabled. Check if remote file exists.
+--2026-09-03 17:16:07--  https://github.com/
+Resolving github.com (github.com)... 20.207.73.82
+Connecting to github.com (github.com)|20.207.73.82|:443... connected.
+HTTP request sent, awaiting response... 
+  HTTP/1.1 200 OK
+  Date: Thu, 03 Sep 2026 17:16:02 GMT
+  Content-Type: text/html; charset=utf-8
+  content-language: en-US
+  Vary: X-PJAX, X-PJAX-Container, Turbo-Visit, Turbo-Frame, X-Requested-With, X-GitHub-Client-Version, Accept-Language, Sec-Fetch-Site,Accept-Encoding, Accept, X-Requested-With
+  ETag: W/"046d3be3b3b7a98a9562c57f5a6c7678"
+  Cache-Control: max-age=0, private, must-revalidate
+
+==================== 10. PACKET CAPTURE — tcpdump ====================
+
+$ tcpdump -i any -c 5 -n icmp   (capture 5 ICMP packets while pinging)
+17:16:09.399482 eth0  Out IP 172.17.0.2 > 8.8.8.8: ICMP echo request, id 3, seq 1, length 64
+17:16:09.414555 eth0  In  IP 8.8.8.8 > 172.17.0.2: ICMP echo reply, id 3, seq 1, length 64
+17:16:10.406905 eth0  Out IP 172.17.0.2 > 8.8.8.8: ICMP echo request, id 3, seq 2, length 64
+17:16:10.421510 eth0  In  IP 8.8.8.8 > 172.17.0.2: ICMP echo reply, id 3, seq 2, length 64
+17:16:11.414713 eth0  Out IP 172.17.0.2 > 8.8.8.8: ICMP echo request, id 3, seq 3, length 64
+
+>> tcpdump reads packets straight off the wire. This capture shows the ICMP
+>> echo request/reply pairs generated by the ping above.
+
+==================== 11. PORT SCAN — nmap (localhost only) ====================
+
+$ nmap -sT -p 1-1024,9001 127.0.0.1
+Starting Nmap 7.80 ( https://nmap.org ) at 2026-09-03 17:16 UTC
+Nmap scan report for localhost (127.0.0.1)
+Host is up (0.000027s latency).
+Not shown: 1024 closed ports
+PORT     STATE SERVICE
+9001/tcp open  tor-orport
+
+Nmap done: 1 IP address (1 host up) scanned in 0.03 seconds
+
+>> Only 127.0.0.1 (this container itself) is scanned. Scanning hosts you do
+>> not own is unauthorised and in many places illegal.
+
+==================== 12. NETWORK STATS & MTU ====================
+
+$ ip -s link show eth0
+11: eth0@if49: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP mode DEFAULT group default 
+    link/ether xx:xx:xx:xx:xx:xx brd xx:xx:xx:xx:xx:xx link-netnsid 0
+    RX:  bytes packets errors dropped  missed   mcast           
+        622011     165      0       0       0       0 
+    TX:  bytes packets errors dropped carrier collsns           
+         17664     196      0       0       0       0 
+
+$ cat /proc/net/dev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:  102624    2052    0    0    0     0          0         0   102624    2052    0    0    0     0       0          0
+ tunl0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+  gre0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+gretap0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+erspan0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ip_vti0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ip6_vti0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+  sit0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ip6tnl0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ip6gre0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+  eth0:  622011     165    0    0    0     0          0         0    17664     196    0    0    0     0       0          0
+
+$ ip link show eth0 | grep -o 'mtu [0-9]*'
+mtu 65535
+
+==================== 13. WHOIS ====================
+
+$ whois github.com
+   Domain Name: GITHUB.COM
+   Registry Domain ID: 1264983250_DOMAIN_COM-VRSN
+   Registrar WHOIS Server: whois.markmonitor.com
+   Registrar URL: http://www.markmonitor.com
+   Updated Date: 2024-09-07T09:16:32Z
+   Creation Date: 2007-10-09T18:20:50Z
+   Registry Expiry Date: 2026-10-09T18:20:50Z
+   Registrar: MarkMonitor Inc.
+   Registrar IANA ID: 292
+   Registrar Abuse Contact Email: abusecomplaints@markmonitor.com
+   Registrar Abuse Contact Phone: +1.2086851750
+   Domain Status: clientDeleteProhibited https://icann.org/epp#clientDeleteProhibited
+   Domain Status: clientTransferProhibited https://icann.org/epp#clientTransferProhibited
+   Domain Status: clientUpdateProhibited https://icann.org/epp#clientUpdateProhibited
+   Name Server: DNS1.P08.NSONE.NET
+   Name Server: DNS2.P08.NSONE.NET
+   Name Server: DNS3.P08.NSONE.NET
+   Name Server: DNS4.P08.NSONE.NET
+   Name Server: NS-1283.AWSDNS-32.ORG
+   Name Server: NS-1707.AWSDNS-21.CO.UK
+
+==================== 14. COMMANDS EXPLAINED BUT NOT RUN HERE ====================
+
+  ssh user@host            - encrypted remote shell (port 22). Needs a remote host.
+  scp file user@host:/path - copy files over SSH.
+  rsync -avz src host:dst  - efficient delta-based sync over SSH.
+  iptables -L -n -v        - list firewall rules (needs NET_ADMIN; superseded by nftables).
+  ufw status               - Ubuntu's friendly firewall front-end.
+  mtr google.com           - traceroute + ping combined, continuously updating (interactive).
+  tcpdump -w cap.pcap      - write a capture to disk for Wireshark.
+  ip addr add 10.0.0.5/24 dev eth0   - assign an IP manually.
+  ip route add 10.0.0.0/24 via 192.168.1.1  - add a static route.
+
+
+==================== NETWORKING PRACTICE COMPLETE ====================
