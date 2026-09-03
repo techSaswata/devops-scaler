@@ -1,0 +1,95 @@
+############ Where do the two commands come from? ############
+$ which useradd adduser
+/usr/sbin/useradd
+/usr/sbin/adduser
+
+$ file $(which adduser)
+/usr/sbin/adduser: Perl script text executable
+$ file $(which useradd)
+/usr/sbin/useradd: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, BuildID[sha1]=9ca25c8dea54feb7dcadf3675981738d91ae86f9, for GNU/Linux 3.7.0, stripped
+>> useradd is a low-level BINARY (shadow-utils).
+>> adduser is a high-level PERL SCRIPT that WRAPS useradd (Debian/Ubuntu only).
+
+$ dpkg -S $(which useradd) $(which adduser)
+passwd: /usr/sbin/useradd
+adduser: /usr/sbin/adduser
+
+################################################################
+#  A) useradd  — the low-level way (note what it does NOT do)  #
+################################################################
+$ useradd testuser-low
+
+--- /etc/passwd entry ---
+testuser-low:x:1000:1000::/home/testuser-low:/bin/sh
+
+--- was a home directory created? ---
+ls: cannot access '/home/testuser-low': No such file or directory
+>> NO home directory was created.
+
+--- what shell did it get? ---
+login shell = /bin/sh
+>> Empty/nologin: the user cannot get an interactive shell.
+
+--- password status (passwd -S) ---
+testuser-low L 09/03/2026 0 99999 7 -1
+>> 'L' = account is LOCKED, no password was set.
+
+--- groups ---
+uid=1000(testuser-low) gid=1000(testuser-low) groups=1000(testuser-low)
+
+################################################################
+#  B) adduser — the recommended way on Debian/Ubuntu            #
+################################################################
+$ adduser --gecos '' --disabled-password testuser
+   (--gecos '' and --disabled-password only so this runs non-interactively;
+    normally adduser PROMPTS for the password and the GECOS fields.)
+Adding user `testuser' ...
+Adding new group `testuser' (1001) ...
+Adding new user `testuser' (1001) with group `testuser' ...
+Creating home directory `/home/testuser' ...
+Copying files from `/etc/skel' ...
+
+--- /etc/passwd entry ---
+testuser:x:1001:1001:,,,:/home/testuser:/bin/bash
+
+--- home directory created automatically ---
+drwxr-x--- 2 testuser testuser 4096 Sep  3 16:50 /home/testuser
+
+--- skeleton files copied from /etc/skel ---
+.
+..
+.bash_logout
+.bashrc
+.profile
+--- /etc/skel contains ---
+.
+..
+.bash_logout
+.bashrc
+.profile
+
+--- login shell ---
+login shell = /bin/bash
+
+--- a matching personal GROUP was created ---
+uid=1001(testuser) gid=1001(testuser) groups=1001(testuser)
+testuser:x:1001:
+
+--- now set a password interactively-equivalent ---
+testuser P 09/03/2026 0 99999 7 -1
+>> 'P' = usable password is now set.
+
+############ SIDE-BY-SIDE ############
+USER             UID    GID    HOME                     SHELL
+testuser-low     1000   1000   /home/testuser-low       /bin/sh
+testuser         1001   1001   /home/testuser           /bin/bash
+
+############ Cleanup demo (deluser / userdel) ############
+$ deluser --remove-home testuser-low
+/usr/sbin/deluser: In order to use the --remove-home, --remove-all-files, and --backup features,
+you need to install the `perl' package. To accomplish that, run
+apt-get install perl.
+>> 'testuser' is KEPT as the required test user for this homework.
+
+--- final proof the required test user exists ---
+uid=1001(testuser) gid=1001(testuser) groups=1001(testuser)
