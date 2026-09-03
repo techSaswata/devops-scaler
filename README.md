@@ -4,7 +4,6 @@
 |---|---|
 | **Student** | Saswata Das |
 | **Enrollment number** | 24BCS10248 |
-| **Assignment** | [`docs/DevOps Homework.pdf`](docs/DevOps%20Homework.pdf) |
 | **Repository** | https://github.com/techSaswata/devops-scaler |
 | **Modules submitted** | 7 of 7 |
 | **Status** | Complete |
@@ -38,8 +37,7 @@ in the corresponding `scripts/` directory.
 
 ## 2. Assignment coverage
 
-Each requirement from the assignment PDF is mapped below to the deliverable that satisfies
-it.
+Each requirement of the assignment is mapped below to the deliverable that satisfies it.
 
 ### 2.1 Linux Fundamentals → [`01-linux-fundamentals/`](01-linux-fundamentals/)
 
@@ -319,8 +317,6 @@ Docker Desktop's containerd image store. Both measures are reported where releva
 devops-scaler/
 ├── README.md                     This document
 ├── cleanup.sh                    Removes all demo containers, networks and images
-├── docs/
-│   └── DevOps Homework.pdf       The original assignment
 ├── tools/                        Evidence-capture utilities (see §8)
 ├── 01-linux-fundamentals/
 ├── 02-shell-scripting/
