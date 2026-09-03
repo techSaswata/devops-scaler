@@ -5,3 +5,6 @@ dist/
 target/
 __pycache__/
 .tmp/
+
+# assignment source — kept locally, never published
+docs/
