@@ -1,0 +1,258 @@
+
+==================== 1. CREATE A FOLDER ON THE LOCAL MACHINE ====================
+$ mkdir -p /Users/techsaswata/Downloads/devops-scaler/07-docker-network-volumes/bind-mount-site
+drwxr-xr-x@ 2 techsaswata  staff  64 Sep  3 23:26 /Users/techsaswata/Downloads/devops-scaler/07-docker-network-volumes/bind-mount-site
+
+==================== 2. CREATE index.html WITH THE CONTENT 'Hello students' ====================
+$ cat /Users/techsaswata/Downloads/devops-scaler/07-docker-network-volumes/bind-mount-site/index.html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Bind Mount Demo</title>
+  <style>
+    :root{--bg:#0f1117;--card:#171a23;--line:#252a38;--fg:#e6e9f0;--muted:#8b93a7;--accent:#00b04f}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:var(--bg);color:var(--fg);min-height:100vh;display:grid;place-items:center;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:24px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:44px 52px;
+      max-width:620px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+    .badge{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.08em;
+      text-transform:uppercase;color:var(--accent);background:rgba(0,176,79,.14);border:1px solid rgba(0,176,79,.3);
+      padding:6px 12px;border-radius:999px;margin-bottom:22px}
+    h1{font-size:38px;line-height:1.15;letter-spacing:-.02em;margin-bottom:12px}
+    p{color:var(--muted);font-size:15px;line-height:1.6}
+    code{font-family:ui-monospace,'SF Mono',Menlo,monospace;color:var(--accent);font-size:13.5px}
+    .foot{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Bind Mount &middot; original</div>
+    <h1>Hello students</h1>
+    <p>This file lives on the HOST at <code>bind-mount-site/index.html</code> and is
+       bind-mounted into the Nginx container at <code>/usr/share/nginx/html</code>.</p>
+    <p class="foot">Saswata Das &middot; 24BCS10248 &middot; DevOps Homework</p>
+  </div>
+</body>
+</html>
+
+==================== 3. BIND MOUNT THE FOLDER INTO AN NGINX CONTAINER ====================
+$ docker run -d --name nginx-bind -p 8083:80 \
+      -v /Users/techsaswata/Downloads/devops-scaler/07-docker-network-volumes/bind-mount-site:/usr/share/nginx/html:ro nginx:alpine
+5d365abe0b8368ee5f1f17c6201fd5477660e53f3397574ae0241964b5bb9296
+
+--- the mount, as Docker sees it ---
+$ docker inspect nginx-bind --format '{{range .Mounts}}...{{end}}'
+type=bind
+source=/Users/techsaswata/Downloads/devops-scaler/07-docker-network-volumes/bind-mount-site
+dest=/usr/share/nginx/html
+readonly=true
+
+==================== 4. ACCESS THE NGINX WEBSITE AND VERIFY THE CONTENT ====================
+$ curl -s http://localhost:8083/
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Bind Mount Demo</title>
+  <style>
+    :root{--bg:#0f1117;--card:#171a23;--line:#252a38;--fg:#e6e9f0;--muted:#8b93a7;--accent:#00b04f}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:var(--bg);color:var(--fg);min-height:100vh;display:grid;place-items:center;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:24px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:44px 52px;
+      max-width:620px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+    .badge{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.08em;
+      text-transform:uppercase;color:var(--accent);background:rgba(0,176,79,.14);border:1px solid rgba(0,176,79,.3);
+      padding:6px 12px;border-radius:999px;margin-bottom:22px}
+    h1{font-size:38px;line-height:1.15;letter-spacing:-.02em;margin-bottom:12px}
+    p{color:var(--muted);font-size:15px;line-height:1.6}
+    code{font-family:ui-monospace,'SF Mono',Menlo,monospace;color:var(--accent);font-size:13.5px}
+    .foot{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Bind Mount &middot; original</div>
+    <h1>Hello students</h1>
+    <p>This file lives on the HOST at <code>bind-mount-site/index.html</code> and is
+       bind-mounted into the Nginx container at <code>/usr/share/nginx/html</code>.</p>
+    <p class="foot">Saswata Das &middot; 24BCS10248 &middot; DevOps Homework</p>
+  </div>
+</body>
+</html>
+
+$ curl -s http://localhost:8083/ | grep -o 'Hello students'
+Hello students
+>> The container is serving the file straight off the host filesystem.
+
+--- the same file, seen from INSIDE the container ---
+$ docker exec nginx-bind cat /usr/share/nginx/html/index.html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Bind Mount Demo</title>
+  <style>
+    :root{--bg:#0f1117;--card:#171a23;--line:#252a38;--fg:#e6e9f0;--muted:#8b93a7;--accent:#00b04f}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:var(--bg);color:var(--fg);min-height:100vh;display:grid;place-items:center;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:24px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:44px 52px;
+      max-width:620px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+    .badge{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.08em;
+      text-transform:uppercase;color:var(--accent);background:rgba(0,176,79,.14);border:1px solid rgba(0,176,79,.3);
+      padding:6px 12px;border-radius:999px;margin-bottom:22px}
+    h1{font-size:38px;line-height:1.15;letter-spacing:-.02em;margin-bottom:12px}
+    p{color:var(--muted);font-size:15px;line-height:1.6}
+    code{font-family:ui-monospace,'SF Mono',Menlo,monospace;color:var(--accent);font-size:13.5px}
+    .foot{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Bind Mount &middot; original</div>
+    <h1>Hello students</h1>
+    <p>This file lives on the HOST at <code>bind-mount-site/index.html</code> and is
+       bind-mounted into the Nginx container at <code>/usr/share/nginx/html</code>.</p>
+    <p class="foot">Saswata Das &middot; 24BCS10248 &middot; DevOps Homework</p>
+  </div>
+</body>
+</html>
+$ docker exec nginx-bind ls -la /usr/share/nginx/html/
+total 8
+drwxr-xr-x    3 root     root            96 Sep  3 17:56 .
+drwxr-xr-x    3 root     root          4096 Sep  2 21:05 ..
+-rw-r--r--    1 root     root          1693 Sep  3 17:56 index.html
+
+==================== 5. MODIFY index.html ON THE HOST ====================
+container StartedAt BEFORE the edit : 2026-09-03T17:56:18.289326253Z
+
+$ cat > /Users/techsaswata/Downloads/devops-scaler/07-docker-network-volumes/bind-mount-site/index.html   (edited on the host)
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Bind Mount Demo &mdash; edited</title>
+  <style>
+    :root{--bg:#0f1117;--card:#171a23;--line:#252a38;--fg:#e6e9f0;--muted:#8b93a7;--accent:#ffb020}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:var(--bg);color:var(--fg);min-height:100vh;display:grid;place-items:center;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:24px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:44px 52px;
+      max-width:620px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+    .badge{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.08em;
+      text-transform:uppercase;color:var(--accent);background:rgba(255,176,32,.14);border:1px solid rgba(255,176,32,.3);
+      padding:6px 12px;border-radius:999px;margin-bottom:22px}
+    h1{font-size:38px;line-height:1.15;letter-spacing:-.02em;margin-bottom:12px}
+    p{color:var(--muted);font-size:15px;line-height:1.6}
+    code{font-family:ui-monospace,'SF Mono',Menlo,monospace;color:var(--accent);font-size:13.5px}
+    .foot{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Bind Mount &middot; edited live</div>
+    <h1>Hello students &mdash; this file was EDITED on the host</h1>
+    <p>The container was <strong>never restarted</strong>. No rebuild, no
+       <code>docker cp</code>. The edit was made with a text editor on the host and
+       the very next request served the new bytes.</p>
+    <p class="foot">Saswata Das &middot; 24BCS10248 &middot; DevOps Homework</p>
+  </div>
+</body>
+</html>
+
+==================== 6. VERIFY THE CHANGE IS REFLECTED — WITHOUT RESTARTING ====================
+$ curl -s http://localhost:8083/
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Bind Mount Demo &mdash; edited</title>
+  <style>
+    :root{--bg:#0f1117;--card:#171a23;--line:#252a38;--fg:#e6e9f0;--muted:#8b93a7;--accent:#ffb020}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:var(--bg);color:var(--fg);min-height:100vh;display:grid;place-items:center;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:24px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:44px 52px;
+      max-width:620px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+    .badge{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.08em;
+      text-transform:uppercase;color:var(--accent);background:rgba(255,176,32,.14);border:1px solid rgba(255,176,32,.3);
+      padding:6px 12px;border-radius:999px;margin-bottom:22px}
+    h1{font-size:38px;line-height:1.15;letter-spacing:-.02em;margin-bottom:12px}
+    p{color:var(--muted);font-size:15px;line-height:1.6}
+    code{font-family:ui-monospace,'SF Mono',Menlo,monospace;color:var(--accent);font-size:13.5px}
+    .foot{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Bind Mount &middot; edited live</div>
+    <h1>Hello students &mdash; this file was EDITED on the host</h1>
+    <p>The container was <strong>never restarted</strong>. No rebuild, no
+       <code>docker cp</code>. The edit was made with a text editor on the host and
+       the very next request served the new bytes.</p>
+    <p class="foot">Saswata Das &middot; 24BCS10248 &middot; DevOps Homework</p>
+  </div>
+</body>
+</html>
+
+$ curl -s http://localhost:8083/ | grep -o 'EDITED on the host'
+EDITED on the host
+
+container StartedAt AFTER the edit  : 2026-09-03T17:56:18.289326253Z
+>> IDENTICAL StartedAt — the container was NEVER restarted.
+
+$ docker ps --filter name=nginx-bind
+NAMES        STATUS         PORTS
+nginx-bind   Up 3 seconds   0.0.0.0:8083->80/tcp, [::]:8083->80/tcp
+
+==================== 7. ADD A WHOLE NEW FILE ON THE HOST — it appears instantly too ====================
+$ echo '...' > /Users/techsaswata/Downloads/devops-scaler/07-docker-network-volumes/bind-mount-site/new-page.html
+$ curl -s http://localhost:8083/new-page.html
+<h1>A page created on the host after the container started</h1>
+$ docker exec nginx-bind ls /usr/share/nginx/html/
+index.html
+new-page.html
+
+==================== 8. THE :ro FLAG — the container CANNOT write back ====================
+$ docker exec nginx-bind sh -c 'echo hacked > /usr/share/nginx/html/index.html'
+sh: can't create /usr/share/nginx/html/index.html: Read-only file system
+>> Read-only mount rejected the write. The host file is untouched:
+$ grep -o 'EDITED on the host' /Users/techsaswata/Downloads/devops-scaler/07-docker-network-volumes/bind-mount-site/index.html
+EDITED on the host
+
+==================== 9. CONTRAST: a container WITHOUT the bind mount does not see the edits ====================
+$ docker run -d --name nginx-copy -p 8084:80 nginx:alpine   (stock image, no mount)
+$ curl -s http://localhost:8084/ | head -5
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+>> The stock nginx welcome page — it has no idea our folder exists.
+
+==================== 10. BIND MOUNT vs NAMED VOLUME ====================
+
+                    | bind mount (-v /host/path:/ctr/path) | named volume (-v mydata:/ctr/path)
+  ------------------|--------------------------------------|-----------------------------------
+  Where it lives    | a path YOU choose on the host        | Docker-managed area
+  Host can edit it  | yes, with any editor                 | awkward (inside Docker's storage)
+  Portable          | no - depends on the host path         | yes - Docker creates it anywhere
+  Best for          | DEVELOPMENT: live source reloading,   | PRODUCTION DATA: database files,
+                    | config files, static site content     | uploads, anything that must persist
+  Backup            | ordinary file copy                   | docker volume commands
+  Created if absent | yes (as an empty DIRECTORY - a very  | yes, as a proper volume
+                    | common cause of "file not found")    |
+
+  WHY THE LIVE UPDATE WORKS: a bind mount is not a copy. The kernel mounts the
+  host directory into the container's mount namespace, so both names refer to
+  the SAME inodes on the SAME filesystem. There is nothing to synchronise -
+  reading the file in the container reads the host's file.
+

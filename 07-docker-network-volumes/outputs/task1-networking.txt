@@ -1,0 +1,157 @@
+
+==================== 0. CLEAN SLATE ====================
+removed any previous containers/networks
+
+==================== 1. CREATE 3 DOCKER NETWORKS ====================
+$ docker network create frontend-net
+d2d6a930e37f49520aebfd6b07c6c0edb6569688beca96316609dff0fb20937d
+$ docker network create backend-net
+a1228d095ac7cfd8fa3bc71d5cd7a3dfee669501914103562ff88732fdc9855a
+$ docker network create isolated-net
+81a579efef183c2b98e6e4d6e770227b558ff906a0c8a130cf118c1ccabc72dd
+
+$ docker network ls
+NETWORK ID     NAME                DRIVER    SCOPE
+a1228d095ac7   backend-net         bridge    local
+73b304fed43f   bridge              bridge    local
+972f34dc1e29   deployment_appnet   bridge    local
+d2d6a930e37f   frontend-net        bridge    local
+deff705e9478   host                host      local
+81a579efef18   isolated-net        bridge    local
+137e6e3db62f   none                null      local
+
+==================== 2. CREATE THE 3 CONTAINERS ====================
+--- frontend: nginx, on frontend-net ---
+$ docker run -d --name frontend --network frontend-net -p 8081:80 nginx:alpine
+c71d1fbf6d3a6800c3ed0bcaaf0be8810551c5e5d114eea0907b7ee5271094fd
+
+--- database: mysql, on backend-net ---
+$ docker run -d --name database --network backend-net -e MYSQL_ROOT_PASSWORD=... mysql:8.0
+b170d23adea44001abb9d6bd05bdbafcf5e53e44dd4b55990345daa41d6eed5a
+
+--- backend: alpine toolbox, on backend-net (a second network is added next) ---
+$ docker run -d --name backend --network backend-net nettools
+a3827d8792886f30f6ee32468fb3d49cb7482dd032614211bd0a8afeb914c457
+
+==================== 3. ADD THE BACKEND CONTAINER TO A SECOND NETWORK ====================
+A container can only join ONE network with 'docker run --network'.
+Additional networks are attached afterwards with 'docker network connect'.
+
+$ docker network connect frontend-net backend
+connected.
+
+--- proof: backend now has TWO network interfaces ---
+$ docker inspect backend --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} -> {{$v.IPAddress}}{{println}}{{end}}'
+backend-net -> 172.20.0.3
+frontend-net -> 172.19.0.3
+
+$ docker exec backend ip -brief addr
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+tunl0@NONE       DOWN           
+gre0@NONE        DOWN           
+gretap0@NONE     DOWN           
+erspan0@NONE     DOWN           
+ip_vti0@NONE     DOWN           
+ip6_vti0@NONE    DOWN           
+sit0@NONE        DOWN           
+ip6tnl0@NONE     DOWN           
+ip6gre0@NONE     DOWN           
+eth0@if110       UP             172.20.0.3/16 
+eth1@if111       UP             172.19.0.3/16 
+
+==================== 4. WHICH CONTAINER IS ON WHICH NETWORK ====================
+
+--- frontend-net ---
+  backend  172.19.0.3/16
+  frontend  172.19.0.2/16
+
+
+--- backend-net ---
+  backend  172.20.0.3/16
+  database  172.20.0.2/16
+
+
+--- isolated-net ---
+
+  (isolated-net has no members — it is the third network, created but unused,
+   which is exactly what makes it 'isolated')
+
+==================== 5. WAIT FOR MYSQL TO FINISH INITIALISING ====================
+MySQL ready after 7s
+
+==================== 6. CONNECTIVITY TESTS ====================
+
+############ 6a. backend -> frontend  (share frontend-net) ############
+$ docker exec backend ping -c 3 frontend
+64 bytes from frontend.frontend-net (172.19.0.2): icmp_seq=2 ttl=64 time=0.056 ms
+64 bytes from frontend.frontend-net (172.19.0.2): icmp_seq=3 ttl=64 time=0.124 ms
+
+--- frontend ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2082ms
+rtt min/avg/max/mdev = 0.056/0.096/0.124/0.029 ms
+
+$ docker exec backend curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://frontend
+HTTP 200
+>> SUCCESS — resolved by CONTAINER NAME via Docker's embedded DNS.
+
+############ 6b. backend -> database  (share backend-net) ############
+$ docker exec backend ping -c 3 database
+64 bytes from database.backend-net (172.20.0.2): icmp_seq=2 ttl=64 time=0.142 ms
+64 bytes from database.backend-net (172.20.0.2): icmp_seq=3 ttl=64 time=0.147 ms
+
+--- database ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2038ms
+rtt min/avg/max/mdev = 0.083/0.124/0.147/0.029 ms
+
+$ docker exec backend nc -zv database 3306
+Connection to database (172.20.0.2) 3306 port [tcp/mysql] succeeded!
+
+--- an actual SQL query across the network ---
+$ docker exec backend mysql --skip-ssl -h database -uappuser -papppass appdb -e 'SELECT ...'
+result	mysql_version
+backend reached the database over backend-net	8.0.46
+>> SUCCESS — real MySQL protocol traffic between two containers.
+
+############ 6c. frontend -> database  (share NO network) ############
+$ docker exec frontend ping -c 2 database    (expected to FAIL)
+ping: bad address 'database'
+
+$ docker exec frontend getent hosts database   (expected: nothing)
+(no result — name does not resolve)
+
+>> FAILS, and this is the POINT. frontend and database share no network,
+>> so Docker's DNS will not even resolve the name for them. The database
+>> is unreachable from the public-facing tier — network segmentation.
+
+############ 6d. frontend -> backend  (share frontend-net) ############
+$ docker exec frontend ping -c 2 backend
+64 bytes from 172.19.0.3: seq=1 ttl=64 time=0.215 ms
+
+--- backend ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.038/0.126/0.215 ms
+>> SUCCESS — the backend is the only bridge between the two tiers.
+
+==================== 7. CONNECTIVITY MATRIX ====================
+FROM         TO           RESULT       REASON
+backend      frontend     OK           both on frontend-net
+backend      database     OK           both on backend-net
+frontend     backend      OK           both on frontend-net
+frontend     database     BLOCKED      no shared network
+
+==================== 8. FINAL STATE ====================
+$ docker ps  (filtered to this task's three containers)
+NAMES      IMAGE          STATUS          PORTS
+backend    nettools       Up 12 seconds   
+database   mysql:8.0      Up 12 seconds   3306/tcp, 33060/tcp
+frontend   nginx:alpine   Up 12 seconds   0.0.0.0:8081->80/tcp, [::]:8081->80/tcp
+
+$ docker network ls
+NETWORK ID     NAME                DRIVER    SCOPE
+a1228d095ac7   backend-net         bridge    local
+73b304fed43f   bridge              bridge    local
+972f34dc1e29   deployment_appnet   bridge    local
+d2d6a930e37f   frontend-net        bridge    local
+deff705e9478   host                host      local
+81a579efef18   isolated-net        bridge    local
+137e6e3db62f   none                null      local
