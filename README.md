@@ -4,9 +4,6 @@
 |---|---|
 | **Student** | Saswata Das |
 | **Enrollment number** | 24BCS10248 |
-| **Repository** | https://github.com/techSaswata/devops-scaler |
-| **Modules submitted** | 7 of 7 |
-| **Status** | Complete |
 
 ---
 
