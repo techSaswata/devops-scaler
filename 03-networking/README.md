@@ -90,6 +90,7 @@ arp -a          # macOS/BSD
 ```
 
 ![arp host](screenshots/host-03-c-arp-cache-real-neighbours-on-the-lan.png)
+![arp linux](screenshots/linux-03-3-arp-neighbour-table.png)
 
 **What I understood:** IP is layer 3, but Ethernet delivers frames to **MAC addresses** at
 layer 2. ARP is the bridge: "who has 100.129.160.1? tell me your MAC." The answers are
@@ -140,6 +141,7 @@ ping -c 4 google.com
 ```
 
 ![ping](screenshots/linux-05-5-connectivity-ping.png)
+![ping host](screenshots/host-07-g-latency-reachability.png)
 
 **What I understood:** `ping` sends an **ICMP Echo Request** and times the **Echo Reply**.
 It answers two different questions at once:
