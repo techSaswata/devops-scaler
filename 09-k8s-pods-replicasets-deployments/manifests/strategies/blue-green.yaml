@@ -1,0 +1,40 @@
+# BLUE-GREEN: two complete Deployments run side by side. A single Service
+# selector decides which one receives traffic, so the cutover is instant and
+# the rollback is just as instant.
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: app-blue }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: bg-demo, slot: blue } }
+  template:
+    metadata: { labels: { app: bg-demo, slot: blue } }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          command: ["sh","-c","echo 'BLUE v1' > /usr/share/nginx/html/index.html && nginx -g 'daemon off;'"]
+          resources: { requests: { cpu: "20m", memory: "24Mi" } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: app-green }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: bg-demo, slot: green } }
+  template:
+    metadata: { labels: { app: bg-demo, slot: green } }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          command: ["sh","-c","echo 'GREEN v2' > /usr/share/nginx/html/index.html && nginx -g 'daemon off;'"]
+          resources: { requests: { cpu: "20m", memory: "24Mi" } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: bg-service }
+spec:
+  # THIS selector is the switch. Flip slot: blue -> green to cut over.
+  selector: { app: bg-demo, slot: blue }
+  ports: [{ port: 80, targetPort: 80 }]

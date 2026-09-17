@@ -1,0 +1,18 @@
+# BROKEN ON PURPOSE: the selector says app=frontend but the pod template
+# labels the pods app=frontend-app. The ReplicaSet can never find the pods it
+# creates, so it creates them forever.
+# The API server actually rejects this one - which is the lesson.
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata: { name: broken-selector }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: frontend }
+  template:
+    metadata:
+      labels: { app: frontend-app }    # <-- does NOT match the selector
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine

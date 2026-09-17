@@ -1,0 +1,9 @@
+# IMAGEPULLBACKOFF: the image tag does not exist, so the kubelet can never
+# start the container. Note the pod is Pending — it never reaches Running.
+apiVersion: v1
+kind: Pod
+metadata: { name: lc-imagepull }
+spec:
+  containers:
+    - name: app
+      image: nginx:this-tag-does-not-exist-9999

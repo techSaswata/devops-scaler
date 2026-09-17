@@ -1,0 +1,294 @@
+
+=== 1. BLUE-GREEN DEPLOYMENT ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/strategies/blue-green.yaml
+deployment.apps/app-blue created
+deployment.apps/app-green created
+service/bg-service created
+Waiting for deployment "app-blue" rollout to finish: 0 of 2 updated replicas are available...
+deployment "app-blue" successfully rolled out
+deployment "app-green" successfully rolled out
+
+$ kubectl get deployments -l app=bg-demo
+No resources found in default namespace.
+
+$ kubectl get pods -l app=bg-demo -L slot
+NAME                         READY   STATUS    RESTARTS   AGE   SLOT
+app-blue-5d455db569-99rdw    1/1     Running   0          1s    blue
+app-blue-5d455db569-pmb4g    1/1     Running   0          1s    blue
+app-green-54bcf67868-2tp5f   1/1     Running   0          1s    green
+app-green-54bcf67868-67rhc   1/1     Running   0          1s    green
+>> BOTH versions are running at full capacity, at the same time.
+
+--- the Service selector decides who gets traffic ---
+
+$ kubectl get svc bg-service -o jsonpath='{.spec.selector}{"\n"}'
+{"app":"bg-demo","slot":"blue"}
+
+$ curl bg-service  (5 requests, currently pointing at BLUE)
+  request 1: BLUE v1
+  request 2: BLUE v1
+  request 3: BLUE v1
+  request 4: BLUE v1
+  request 5: BLUE v1
+
+$ kubectl get endpoints bg-service
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME         ENDPOINTS                       AGE
+bg-service   10.244.1.64:80,10.244.2.89:80   2s
+
+--- THE CUTOVER: flip the selector from blue to green ---
+$ kubectl patch svc bg-service -p '{"spec":{"selector":{"app":"bg-demo","slot":"green"}}}'
+service/bg-service patched
+
+$ kubectl get svc bg-service -o jsonpath='{.spec.selector}{"\n"}'
+{"app":"bg-demo","slot":"green"}
+
+$ curl bg-service  (5 requests, now pointing at GREEN)
+  request 1: GREEN v2
+  request 2: GREEN v2
+  request 3: GREEN v2
+  request 4: GREEN v2
+  request 5: GREEN v2
+
+$ kubectl get endpoints bg-service
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME         ENDPOINTS                       AGE
+bg-service   10.244.1.65:80,10.244.2.90:80   6s
+>> Instant cutover with no pod restarts. Rollback is the same patch in
+>> reverse and is equally instant, because BLUE is still running.
+>> The cost: you pay for double the capacity during the transition.
+
+$ kubectl delete -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/strategies/blue-green.yaml
+deployment.apps "app-blue" deleted from default namespace
+deployment.apps "app-green" deleted from default namespace
+service "bg-service" deleted from default namespace
+
+=== 2. CANARY DEPLOYMENT ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/strategies/canary.yaml
+deployment.apps/app-stable created
+deployment.apps/app-canary created
+service/canary-service created
+Waiting for deployment "app-stable" rollout to finish: 0 of 4 updated replicas are available...
+Waiting for deployment "app-stable" rollout to finish: 1 of 4 updated replicas are available...
+Waiting for deployment "app-stable" rollout to finish: 2 of 4 updated replicas are available...
+Waiting for deployment "app-stable" rollout to finish: 3 of 4 updated replicas are available...
+deployment "app-stable" successfully rolled out
+deployment "app-canary" successfully rolled out
+
+$ kubectl get deployments -l app=canary-demo
+No resources found in default namespace.
+
+$ kubectl get pods -l app=canary-demo -L track
+NAME                          READY   STATUS    RESTARTS   AGE   TRACK
+app-canary-fdc9f996b-drhbt    1/1     Running   0          1s    canary
+app-stable-75888bb95b-49qsm   1/1     Running   0          1s    stable
+app-stable-75888bb95b-4nvws   1/1     Running   0          1s    stable
+app-stable-75888bb95b-9zcgp   1/1     Running   0          1s    stable
+app-stable-75888bb95b-lg67h   1/1     Running   0          1s    stable
+
+--- ONE Service selects BOTH, because it matches only app=canary-demo ---
+
+$ kubectl get svc canary-service -o jsonpath='{.spec.selector}{"\n"}'
+{"app":"canary-demo"}
+
+$ kubectl get endpoints canary-service
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME             ENDPOINTS                                                  AGE
+canary-service   10.244.1.66:80,10.244.1.67:80,10.244.1.68:80 + 2 more...   1s
+>> 5 endpoints: 4 stable + 1 canary. Traffic splits by POD COUNT,
+>> so 1 in 5 = roughly 20% reaches the canary.
+
+$ curl canary-service x20  (counting which version answers)
+  STABLE: 15 / 20
+  CANARY: 5 / 20   (expected ~4, i.e. 1 in 5)
+
+--- promote the canary: scale it up, scale stable down ---
+
+$ kubectl scale deployment app-canary --replicas=4
+deployment.apps/app-canary scaled
+
+$ kubectl scale deployment app-stable --replicas=0
+deployment.apps/app-stable scaled
+
+$ kubectl get pods -l app=canary-demo -L track
+NAME                         READY   STATUS    RESTARTS   AGE   TRACK
+app-canary-fdc9f996b-cmnv7   1/1     Running   0          8s    canary
+app-canary-fdc9f996b-cpt7x   1/1     Running   0          8s    canary
+app-canary-fdc9f996b-drhbt   1/1     Running   0          11s   canary
+app-canary-fdc9f996b-tvktn   1/1     Running   0          8s    canary
+
+$ kubectl get endpoints canary-service
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME             ENDPOINTS                                                  AGE
+canary-service   10.244.1.68:80,10.244.1.69:80,10.244.2.93:80 + 1 more...   11s
+>> Kubernetes splits canary traffic by REPLICA RATIO only. For percentage
+>> control by header, cookie or weight you need an ingress controller or a
+>> service mesh - plain Services cannot do it.
+
+$ kubectl delete -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/strategies/canary.yaml
+deployment.apps "app-stable" deleted from default namespace
+deployment.apps "app-canary" deleted from default namespace
+service "canary-service" deleted from default namespace
+
+=== 3. DAEMONSET — exactly one pod per node ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/workloads/daemonset.yaml
+daemonset.apps/node-agent created
+
+$ kubectl get daemonset node-agent
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+node-agent   2         2         2       2            2           <none>          12s
+
+$ kubectl get pods -l app=node-agent -o wide
+NAME               READY   STATUS    RESTARTS   AGE   IP            NODE                NOMINATED NODE   READINESS GATES
+node-agent-5khzs   1/1     Running   0          12s   10.244.1.70   devops-hw-worker    <none>           <none>
+node-agent-8fj99   1/1     Running   0          12s   10.244.2.95   devops-hw-worker2   <none>           <none>
+
+--- one pod per SCHEDULABLE node; the control plane is tainted, so it is skipped ---
+
+$ kubectl get nodes --no-headers | wc -l
+       3
+
+$ kubectl get pods -l app=node-agent --no-headers | wc -l
+       2
+>> You never set 'replicas' on a DaemonSet - the NODE COUNT decides.
+>> Add a node and a pod appears on it automatically.
+
+$ kubectl logs -l app=node-agent --tail=1 --prefix
+[pod/node-agent-5khzs/agent] [Thu Sep 17 19:10:51 UTC 2026] agent alive on devops-hw-worker
+[pod/node-agent-8fj99/agent] [Thu Sep 17 19:10:51 UTC 2026] agent alive on devops-hw-worker2
+>> Each pod reports its own node via the downward API (spec.nodeName).
+>> Real uses: log shippers (Fluent Bit), node exporters, CNI agents, CSI drivers.
+
+$ kubectl delete -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/workloads/daemonset.yaml
+daemonset.apps "node-agent" deleted from default namespace
+
+=== 4. STATEFULSET — stable identity and per-pod storage ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/workloads/statefulset.yaml
+service/stateful-svc created
+statefulset.apps/web created
+
+--- pods are created IN ORDER, one at a time ---
+  t+5  s  web-0(Pending) 
+  t+10 s  web-0(Running) web-1(Pending) 
+  t+15 s  web-0(Running) web-1(Running) web-2(ContainerCreating) 
+  t+20 s  web-0(Running) web-1(Running) web-2(Running) 
+  t+25 s  web-0(Running) web-1(Running) web-2(Running) 
+  t+30 s  web-0(Running) web-1(Running) web-2(Running) 
+partitioned roll out complete: 3 new pods have been updated...
+
+$ kubectl get statefulset web
+NAME   READY   AGE
+web    3/3     30s
+
+$ kubectl get pods -l app=stateful-demo
+NAME    READY   STATUS    RESTARTS   AGE
+web-0   1/1     Running   0          30s
+web-1   1/1     Running   0          27s
+web-2   1/1     Running   0          23s
+>> Names are ORDINAL and STABLE: web-0, web-1, web-2 - not random suffixes.
+>> web-1 only starts after web-0 is Ready. Deletion happens in reverse.
+
+--- each pod gets its OWN PersistentVolumeClaim ---
+
+$ kubectl get pvc
+NAME         STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+data-web-0   Bound    pvc-9e5f4b96-69d1-4bdc-ac84-a8deb3bb9594   64Mi       RWO            standard       <unset>                 30s
+data-web-1   Bound    pvc-a4158ed2-b3ac-4f52-a574-b151aeffe0dc   64Mi       RWO            standard       <unset>                 27s
+data-web-2   Bound    pvc-4c0087dc-66a0-43bc-a580-f4a544eee387   64Mi       RWO            standard       <unset>                 23s
+>> One PVC per pod, created from volumeClaimTemplates. If web-1 is deleted,
+>> its replacement is still called web-1 and re-attaches to the SAME volume.
+>> That is the whole point: a Deployment's pods are interchangeable,
+>> a StatefulSet's pods have identity.
+
+--- prove identity survives deletion ---
+
+$ kubectl exec web-1 -- cat /usr/share/nginx/html/index.html
+data written by the original web-1
+$ kubectl delete pod web-1
+pod "web-1" deleted from default namespace
+pod/web-1 condition met
+
+$ kubectl get pods -l app=stateful-demo
+NAME    READY   STATUS    RESTARTS   AGE
+web-0   1/1     Running   0          31s
+web-1   1/1     Running   0          0s
+web-2   1/1     Running   0          24s
+
+$ kubectl exec web-1 -- cat /usr/share/nginx/html/index.html
+data written by the original web-1
+>> Same name, same data. The new pod re-attached to web-1's own PVC.
+
+$ kubectl delete -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/workloads/statefulset.yaml
+service "stateful-svc" deleted from default namespace
+statefulset.apps "web" deleted from default namespace
+
+=== 5. TROUBLESHOOTING ===
+--- 5a. SELECTOR MISMATCH ---
+
+$ cat /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/troubleshooting/selector-mismatch.yaml
+# BROKEN ON PURPOSE: the selector says app=frontend but the pod template
+# labels the pods app=frontend-app. The ReplicaSet can never find the pods it
+# creates, so it creates them forever.
+# The API server actually rejects this one - which is the lesson.
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata: { name: broken-selector }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: frontend }
+  template:
+    metadata:
+      labels: { app: frontend-app }    # <-- does NOT match the selector
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+$ kubectl apply -f selector-mismatch.yaml   (expected to FAIL)
+The ReplicaSet "broken-selector" is invalid: spec.template.metadata.labels: Invalid value: {"app":"frontend-app"}: `selector` does not match template `labels`
+
+>> The API server REJECTS it up front: `selector` does not match the
+>> template labels. Without that validation the ReplicaSet would create
+>> pods it could never recognise, and would keep creating them forever.
+>> Fix: make spec.selector.matchLabels identical to the template labels.
+
+--- 5b. BROKEN IMAGE inside a Deployment ---
+
+$ kubectl create deployment broken-image --image=nginx:no-such-tag-123
+deployment.apps/broken-image created
+
+$ kubectl get pods -l app=broken-image
+NAME                           READY   STATUS         RESTARTS   AGE
+broken-image-b87669bc6-rj9pg   0/1     ErrImagePull   0          20s
+$ kubectl describe pod -l app=broken-image | grep -A6 Events
+Events:
+  Type     Reason     Age   From               Message
+  ----     ------     ----  ----               -------
+  Normal   Scheduled  20s   default-scheduler  Successfully assigned default/broken-image-b87669bc6-rj9pg to devops-hw-worker
+  Normal   Pulling    20s   kubelet            Pulling image "nginx:no-such-tag-123"
+  Warning  Failed     9s    kubelet            Failed to pull image "nginx:no-such-tag-123": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/nginx:no-such-tag-123": failed to resolve reference "docker.io/library/nginx:no-such-tag-123": docker.io/library/nginx:no-such-tag-123: not found
+  Warning  Failed     9s    kubelet            Error: ErrImagePull
+  Normal   BackOff    8s    kubelet            Back-off pulling image "nginx:no-such-tag-123"
+  Warning  Failed     8s    kubelet            Error: ImagePullBackOff
+
+>> DIAGNOSIS ORDER that works every time:
+>>   1. kubectl get pods            - what is the STATUS?
+>>   2. kubectl describe pod <name> - read EVENTS at the bottom
+>>   3. kubectl logs <name>         - if it started at all
+>>   4. kubectl logs <name> --previous - if it is crash-looping
+
+$ kubectl delete deployment broken-image
+deployment.apps "broken-image" deleted from default namespace
+
+=== 6. FINAL STATE ===
+
+$ kubectl get all
+NAME                               READY   STATUS        RESTARTS   AGE
+pod/broken-image-b87669bc6-rj9pg   0/1     Terminating   0          20s
+
+NAME                 TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+service/kubernetes   ClusterIP   10.96.0.1    <none>        443/TCP   80s

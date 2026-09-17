@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels: { app: web }
+spec:
+  replicas: 4
+  selector:
+    matchLabels: { app: web }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1           # at most 1 pod down at a time
+      maxSurge: 1                 # at most 1 extra pod above replicas
+  template:
+    metadata:
+      labels: { app: web, version: v2 }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.28-alpine
+          ports: [{ containerPort: 80 }]
+          readinessProbe:         # the rollout WAITS for this before continuing
+            httpGet: { path: /, port: 80 }
+            periodSeconds: 2
+          resources:
+            requests: { cpu: "20m", memory: "24Mi" }

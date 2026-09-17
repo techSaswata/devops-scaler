@@ -1,0 +1,16 @@
+# A readiness probe that never passes. Contrast with bad-liveness: this pod is
+# NOT restarted. It stays Running but 0/1 READY, and is kept out of Service
+# endpoints - traffic is simply never sent to it.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-readiness
+  labels: { app: readiness-test }
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      readinessProbe:
+        httpGet: { path: /not-ready-yet, port: 80 }
+        initialDelaySeconds: 2
+        periodSeconds: 3

@@ -1,0 +1,18 @@
+# Recreate: ALL old pods are terminated BEFORE any new pod starts.
+# Guarantees no two versions run at once - at the cost of downtime.
+# Use when the app cannot tolerate two versions sharing a database schema.
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: recreate-demo }
+spec:
+  replicas: 3
+  selector: { matchLabels: { app: recreate-demo } }
+  strategy:
+    type: Recreate
+  template:
+    metadata: { labels: { app: recreate-demo, version: v2 } }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.28-alpine
+          resources: { requests: { cpu: "20m", memory: "24Mi" } }

@@ -1,0 +1,323 @@
+
+=== 1. REPLICASET — desired state and self-healing ===
+
+$ cat /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/replicaset/backend-rs.yaml
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: backend-rs
+  labels: { app: backend }
+spec:
+  replicas: 3                     # the DESIRED state
+  selector:
+    matchLabels:
+      app: backend                # which pods this ReplicaSet owns
+  template:                       # the Pod blueprint it stamps out
+    metadata:
+      labels:
+        app: backend              # MUST match the selector above
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          resources:
+            requests: { cpu: "20m", memory: "24Mi" }
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/replicaset/backend-rs.yaml
+replicaset.apps/backend-rs created
+replicaset.apps/backend-rs condition met
+
+$ kubectl get rs backend-rs
+NAME         DESIRED   CURRENT   READY   AGE
+backend-rs   3         3         3       1s
+
+$ kubectl get pods -l app=backend
+NAME               READY   STATUS    RESTARTS   AGE
+backend-rs-n7fzf   1/1     Running   0          1s
+backend-rs-tj5bg   1/1     Running   0          1s
+backend-rs-tx5h7   1/1     Running   0          1s
+>> Pod names are <rs-name>-<random>. They are INTERCHANGEABLE.
+
+--- SELF-HEALING: delete a pod and watch the controller replace it ---
+$ kubectl delete pod backend-rs-n7fzf
+pod "backend-rs-n7fzf" deleted from default namespace
+
+$ kubectl get pods -l app=backend
+NAME               READY   STATUS    RESTARTS   AGE
+backend-rs-gpxhw   1/1     Running   0          6s
+backend-rs-tj5bg   1/1     Running   0          7s
+backend-rs-tx5h7   1/1     Running   0          7s
+>> Still 3 pods. The ReplicaSet controller noticed actual(2) != desired(3)
+>> and created a replacement. Note the NEW pod has a different name and AGE.
+>> Compare with the bare Pod in module 08, which stayed deleted forever.
+
+--- the link is the LABEL SELECTOR, nothing else ---
+
+$ kubectl get rs backend-rs -o jsonpath='{.spec.selector.matchLabels}{"\n"}'
+{"app":"backend"}
+$ kubectl label pod <one-pod> app=orphaned --overwrite   (steal a pod from the RS)
+pod/backend-rs-gpxhw labeled
+
+$ kubectl get pods -L app
+NAME               READY   STATUS    RESTARTS   AGE   APP
+backend-rs-f86j5   1/1     Running   0          4s    backend
+backend-rs-gpxhw   1/1     Running   0          10s   orphaned
+backend-rs-tj5bg   1/1     Running   0          11s   backend
+backend-rs-tx5h7   1/1     Running   0          11s   backend
+>> Relabelling a pod ORPHANS it: the ReplicaSet no longer matches it, so it
+>> creates yet another pod to get back to 3. The orphan keeps running,
+>> now owned by nobody. Labels are the ONLY link between controller and pod.
+
+$ kubectl scale rs backend-rs --replicas=5
+replicaset.apps/backend-rs scaled
+
+$ kubectl get rs backend-rs
+NAME         DESIRED   CURRENT   READY   AGE
+backend-rs   5         5         5       16s
+
+$ kubectl delete rs backend-rs
+replicaset.apps "backend-rs" deleted from default namespace
+
+=== 2. DEPLOYMENT — the ownership chain ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/deployment/web-v1.yaml
+deployment.apps/web created
+Waiting for deployment "web" rollout to finish: 0 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 0 of 4 updated replicas are available...
+Waiting for deployment "web" rollout to finish: 1 of 4 updated replicas are available...
+Waiting for deployment "web" rollout to finish: 2 of 4 updated replicas are available...
+Waiting for deployment "web" rollout to finish: 3 of 4 updated replicas are available...
+deployment "web" successfully rolled out
+
+$ kubectl get deployment web
+NAME   READY   UP-TO-DATE   AVAILABLE   AGE
+web    4/4     4            4           2s
+
+$ kubectl get rs -l app=web
+NAME             DESIRED   CURRENT   READY   AGE
+web-5dbb8cc686   4         4         4       2s
+
+$ kubectl get pods -l app=web
+NAME                   READY   STATUS    RESTARTS   AGE
+web-5dbb8cc686-2frg9   1/1     Running   0          2s
+web-5dbb8cc686-56vhm   1/1     Running   0          2s
+web-5dbb8cc686-qtlw6   1/1     Running   0          2s
+web-5dbb8cc686-sxsxr   1/1     Running   0          2s
+
+--- Deployment -> ReplicaSet -> Pod, proved by ownerReferences ---
+pod  web-5dbb8cc686-2frg9
+  owned by ReplicaSet  -> web-5dbb8cc686
+     owned by Deployment -> web
+
+>> You manage the Deployment. It manages ReplicaSets. They manage Pods.
+>> A Deployment adds exactly one thing over a ReplicaSet: ROLLOUT HISTORY.
+
+=== 3. ROLLING UPDATE ===
+
+$ kubectl get deployment web -o jsonpath='{.spec.strategy}{"\n"}'
+{"rollingUpdate":{"maxSurge":1,"maxUnavailable":1},"type":"RollingUpdate"}
+>> maxUnavailable:1 = never more than 1 pod down.
+>> maxSurge:1       = never more than 1 extra pod above the 4 desired.
+>> Capacity therefore stays between 3 and 5 - so there is NO downtime.
+
+$ kubectl apply -f web-v2.yaml   (nginx 1.27 -> 1.28)
+deployment.apps/web configured
+$ kubectl rollout status deployment/web
+Waiting for deployment "web" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 3 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "web" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "web" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "web" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "web" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "web" rollout to finish: 1 old replicas are pending termination...
+deployment "web" successfully rolled out
+
+
+$ kubectl get rs -l app=web
+NAME             DESIRED   CURRENT   READY   AGE
+web-5dbb8cc686   0         0         0       5s
+web-665d78bc7b   4         4         4       3s
+>> TWO ReplicaSets now: the old one scaled to 0, the new one to 4.
+>> The old RS is KEPT - that is what makes rollback instant.
+
+$ kubectl get pods -l app=web -L version
+NAME                   READY   STATUS        RESTARTS   AGE   VERSION
+web-5dbb8cc686-56vhm   1/1     Terminating   0          5s    v1
+web-665d78bc7b-9nbh9   1/1     Running       0          1s    v2
+web-665d78bc7b-btksb   1/1     Running       0          1s    v2
+web-665d78bc7b-mrzr7   1/1     Running       0          3s    v2
+web-665d78bc7b-z9ns4   1/1     Running       0          3s    v2
+
+$ kubectl describe deployment web | sed -n '/^Events:/,$p' | head -8
+Events:
+  Type    Reason             Age   From                   Message
+  ----    ------             ----  ----                   -------
+  Normal  ScalingReplicaSet  5s    deployment-controller  Scaled up replica set web-5dbb8cc686 from 0 to 4
+  Normal  ScalingReplicaSet  3s    deployment-controller  Scaled up replica set web-665d78bc7b from 0 to 1
+  Normal  ScalingReplicaSet  3s    deployment-controller  Scaled down replica set web-5dbb8cc686 from 4 to 3
+  Normal  ScalingReplicaSet  3s    deployment-controller  Scaled up replica set web-665d78bc7b from 1 to 2
+  Normal  ScalingReplicaSet  1s    deployment-controller  Scaled down replica set web-5dbb8cc686 from 3 to 2
+
+=== 4. ROLLOUT HISTORY AND ROLLBACK ===
+
+$ kubectl rollout history deployment/web
+deployment.apps/web 
+REVISION  CHANGE-CAUSE
+1         <none>
+2         <none>
+
+
+$ kubectl rollout history deployment/web --revision=2
+deployment.apps/web with revision #2
+Pod Template:
+  Labels:	app=web
+	pod-template-hash=665d78bc7b
+	version=v2
+  Containers:
+   web:
+    Image:	nginx:1.28-alpine
+    Port:	80/TCP
+    Host Port:	0/TCP
+    Requests:
+      cpu:	20m
+      memory:	24Mi
+    Readiness:	http-get http://:80/ delay=0s timeout=1s period=2s #success=1 #failure=3
+    Environment:	<none>
+    Mounts:	<none>
+  Volumes:	<none>
+  Node-Selectors:	<none>
+  Tolerations:	<none>
+
+
+$ kubectl rollout undo deployment/web
+deployment.apps/web rolled back
+Waiting for deployment "web" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 3 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 3 out of 4 new replicas have been updated...
+Waiting for deployment "web" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "web" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "web" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "web" rollout to finish: 3 of 4 updated replicas are available...
+deployment "web" successfully rolled out
+
+$ kubectl get pods -l app=web -L version
+NAME                   READY   STATUS        RESTARTS   AGE   VERSION
+web-5dbb8cc686-bwkng   1/1     Running       0          2s    v1
+web-5dbb8cc686-fk7bh   1/1     Running       0          1s    v1
+web-5dbb8cc686-nc4hs   1/1     Running       0          1s    v1
+web-5dbb8cc686-pwbmh   1/1     Running       0          2s    v1
+web-665d78bc7b-9nbh9   1/1     Terminating   0          3s    v2
+web-665d78bc7b-btksb   1/1     Terminating   0          3s    v2
+web-665d78bc7b-mrzr7   1/1     Terminating   0          5s    v2
+web-665d78bc7b-z9ns4   1/1     Terminating   0          5s    v2
+>> Back on v1. Kubernetes just scaled the OLD ReplicaSet back up - it did
+>> not pull or rebuild anything, which is why rollback is near-instant.
+
+$ kubectl rollout history deployment/web
+deployment.apps/web 
+REVISION  CHANGE-CAUSE
+2         <none>
+3         <none>
+
+>> Note revision numbers only ever increase; the rollback became revision 3.
+
+=== 5. A FAILED ROLLOUT DOES NOT TAKE THE SERVICE DOWN ===
+$ kubectl apply -f web-v3-broken.yaml   (image tag does not exist)
+deployment.apps/web configured
+
+$ kubectl get deployment web
+NAME   READY   UP-TO-DATE   AVAILABLE   AGE
+web    3/4     2            3           32s
+
+$ kubectl get pods -l app=web
+NAME                   READY   STATUS         RESTARTS   AGE
+web-5dbb8cc686-bwkng   1/1     Running        0          27s
+web-5dbb8cc686-nc4hs   1/1     Running        0          26s
+web-5dbb8cc686-pwbmh   1/1     Running        0          27s
+web-65b7ccb845-h49xw   0/1     ErrImagePull   0          25s
+web-65b7ccb845-sf86f   0/1     ErrImagePull   0          25s
+>> 2 new pods are stuck pulling an image that does not exist, but
+>> 3 OLD pods are still Running and serving traffic.
+>> That number is exactly replicas(4) - maxUnavailable(1) = 3: the rollout
+>> is allowed to take down ONE healthy pod and no more, so it stalls here
+>> instead of destroying the working release.
+
+$ kubectl rollout status deployment/web --timeout=20s   (will report the stall)
+Waiting for deployment "web" rollout to finish: 2 out of 4 new replicas have been updated...
+error: timed out waiting for the condition
+
+$ kubectl get rs -l app=web
+NAME             DESIRED   CURRENT   READY   AGE
+web-5dbb8cc686   3         3         3       52s
+web-65b7ccb845   2         2         0       45s
+web-665d78bc7b   0         0         0       50s
+
+$ kubectl rollout undo deployment/web   (abandon the bad release)
+deployment.apps/web rolled back
+Waiting for deployment "web" rollout to finish: 3 of 4 updated replicas are available...
+Waiting for deployment "web" rollout to finish: 3 of 4 updated replicas are available...
+Waiting for deployment "web" rollout to finish: 3 of 4 updated replicas are available...
+deployment "web" successfully rolled out
+
+$ kubectl get pods -l app=web
+NAME                   READY   STATUS    RESTARTS   AGE
+web-5dbb8cc686-67tcm   1/1     Running   0          1s
+web-5dbb8cc686-bwkng   1/1     Running   0          49s
+web-5dbb8cc686-nc4hs   1/1     Running   0          48s
+web-5dbb8cc686-pwbmh   1/1     Running   0          49s
+>> Recovered. THIS is why you use a Deployment with a readiness probe.
+
+$ kubectl delete deployment web
+deployment.apps "web" deleted from default namespace
+
+=== 6. RECREATE STRATEGY — deliberate downtime ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/strategies/recreate-v1.yaml
+deployment.apps/recreate-demo created
+Waiting for deployment "recreate-demo" rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for deployment "recreate-demo" rollout to finish: 0 of 3 updated replicas are available...
+Waiting for deployment "recreate-demo" rollout to finish: 1 of 3 updated replicas are available...
+Waiting for deployment "recreate-demo" rollout to finish: 2 of 3 updated replicas are available...
+deployment "recreate-demo" successfully rolled out
+
+$ kubectl get pods -l app=recreate-demo
+NAME                             READY   STATUS    RESTARTS   AGE
+recreate-demo-5d786b67c4-7fbqt   1/1     Running   0          0s
+recreate-demo-5d786b67c4-kxnmw   1/1     Running   0          0s
+recreate-demo-5d786b67c4-mm9hn   1/1     Running   0          0s
+
+$ kubectl apply -f recreate-v2.yaml   (sampling pod count every second)
+  t+1  s  running=0  total=3   <-- DOWNTIME: zero pods serving
+  t+2  s  running=3  total=3
+  t+3  s  running=3  total=3
+  t+4  s  running=3  total=3
+  t+5  s  running=3  total=3
+  t+6  s  running=3  total=3
+  t+7  s  running=3  total=3
+  t+8  s  running=3  total=3
+  t+9  s  running=3  total=3
+  t+10 s  running=3  total=3
+  t+11 s  running=3  total=3
+  t+12 s  running=3  total=3
+  t+13 s  running=3  total=3
+  t+14 s  running=3  total=3
+deployment "recreate-demo" successfully rolled out
+
+$ kubectl get pods -l app=recreate-demo -L version
+NAME                            READY   STATUS    RESTARTS   AGE   VERSION
+recreate-demo-b559d875b-k44mj   1/1     Running   0          16s   v2
+recreate-demo-b559d875b-nbtmd   1/1     Running   0          16s   v2
+recreate-demo-b559d875b-zplnh   1/1     Running   0          16s   v2
+>> Recreate terminates ALL old pods BEFORE starting any new one, so there
+>> is a window with zero capacity. Use it only when two versions must
+>> never run simultaneously - e.g. an incompatible DB schema migration.
+
+$ kubectl delete deployment recreate-demo
+deployment.apps "recreate-demo" deleted from default namespace

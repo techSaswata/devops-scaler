@@ -1,0 +1,15 @@
+# A liveness probe pointed at a path that does not exist. The container is
+# perfectly healthy, but Kubernetes will kill and restart it anyway - which is
+# exactly the danger of a badly configured liveness probe.
+apiVersion: v1
+kind: Pod
+metadata: { name: bad-liveness }
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      livenessProbe:
+        httpGet: { path: /this-path-returns-404, port: 80 }
+        initialDelaySeconds: 3
+        periodSeconds: 3
+        failureThreshold: 2       # restart after ~6s of failures

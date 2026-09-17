@@ -1,0 +1,10 @@
+# FAILED: the container exits non-zero and is never restarted.
+apiVersion: v1
+kind: Pod
+metadata: { name: lc-failed }
+spec:
+  restartPolicy: Never
+  containers:
+    - name: job
+      image: busybox:1.36
+      command: ["sh","-c","echo 'about to fail'; sleep 2; exit 1"]

@@ -1,0 +1,26 @@
+# v3 uses an image tag that does not exist. The rollout will STALL rather than
+# take the service down - the old ReplicaSet keeps serving. This is the whole
+# point of a rolling update with a readiness probe.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels: { app: web }
+spec:
+  replicas: 4
+  selector:
+    matchLabels: { app: web }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 1, maxSurge: 1 }
+  template:
+    metadata:
+      labels: { app: web, version: v3 }
+    spec:
+      containers:
+        - name: web
+          image: nginx:DOES-NOT-EXIST
+          ports: [{ containerPort: 80 }]
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            periodSeconds: 2

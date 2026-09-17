@@ -1,0 +1,33 @@
+# All three probe types on one pod, so their different jobs are visible.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe-demo
+  labels: { app: probe-demo }
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports: [{ containerPort: 80 }]
+
+      # STARTUP probe: runs FIRST and alone. While it is failing, the liveness
+      # and readiness probes are disabled. This is how you give a slow-booting
+      # app time to start without setting a huge liveness initialDelaySeconds.
+      startupProbe:
+        httpGet: { path: /, port: 80 }
+        failureThreshold: 30
+        periodSeconds: 2          # allows up to 60s to start
+
+      # READINESS probe: "can this pod serve traffic RIGHT NOW?"
+      # Failing it removes the pod from Service endpoints. It does NOT restart it.
+      readinessProbe:
+        httpGet: { path: /, port: 80 }
+        periodSeconds: 5
+        failureThreshold: 3
+
+      # LIVENESS probe: "is this container wedged and in need of a restart?"
+      # Failing it makes the kubelet KILL and restart the container.
+      livenessProbe:
+        httpGet: { path: /, port: 80 }
+        periodSeconds: 5
+        failureThreshold: 3

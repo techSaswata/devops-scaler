@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: backend-rs
+  labels: { app: backend }
+spec:
+  replicas: 3                     # the DESIRED state
+  selector:
+    matchLabels:
+      app: backend                # which pods this ReplicaSet owns
+  template:                       # the Pod blueprint it stamps out
+    metadata:
+      labels:
+        app: backend              # MUST match the selector above
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          resources:
+            requests: { cpu: "20m", memory: "24Mi" }

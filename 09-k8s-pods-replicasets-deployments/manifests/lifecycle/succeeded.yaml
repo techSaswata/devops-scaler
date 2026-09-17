@@ -1,0 +1,11 @@
+# SUCCEEDED: the container does its job and exits 0. restartPolicy: Never stops
+# Kubernetes from restarting it, so the pod stays in a terminal state.
+apiVersion: v1
+kind: Pod
+metadata: { name: lc-succeeded }
+spec:
+  restartPolicy: Never
+  containers:
+    - name: job
+      image: busybox:1.36
+      command: ["sh","-c","echo 'doing some work'; sleep 3; echo 'done'; exit 0"]

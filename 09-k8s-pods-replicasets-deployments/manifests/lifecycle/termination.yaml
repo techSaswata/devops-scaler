@@ -1,0 +1,35 @@
+# GRACEFUL TERMINATION — what actually happens when a pod is deleted.
+#
+# The sequence is:
+#   1. the pod is marked Terminating and REMOVED from Service endpoints
+#   2. the preStop hook runs (if present)
+#   3. SIGTERM is sent to PID 1
+#   4. Kubernetes waits up to terminationGracePeriodSeconds
+#   5. if the container is still alive, SIGKILL
+#
+# Steps 2 and 3 happen essentially together, and the grace period covers BOTH.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: lc-termination
+  labels: { app: termination-demo }
+spec:
+  terminationGracePeriodSeconds: 30
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh","-c"]
+      args:
+        - |
+          # Trap SIGTERM so we can prove the signal arrives and that the app
+          # gets a chance to finish in-flight work instead of being killed.
+          trap 'echo "[app] SIGTERM received — draining connections"; sleep 5; echo "[app] drained, exiting cleanly"; exit 0' TERM
+          echo "[app] started, serving traffic"
+          while true; do sleep 1; done
+      lifecycle:
+        preStop:
+          exec:
+            # Runs BEFORE SIGTERM. The classic use is to pause long enough for
+            # the endpoint removal to propagate to every kube-proxy, so no new
+            # request is routed to a pod that is about to die.
+            command: ["sh","-c","echo '[preStop] hook running — waiting for endpoint removal to propagate'; sleep 3"]

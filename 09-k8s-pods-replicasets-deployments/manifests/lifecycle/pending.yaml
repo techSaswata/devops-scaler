@@ -1,0 +1,11 @@
+# PENDING: the scheduler cannot place this pod because no node has 500 CPUs.
+# It will sit Pending forever, and `describe` will say exactly why.
+apiVersion: v1
+kind: Pod
+metadata: { name: lc-pending }
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27-alpine
+      resources:
+        requests: { cpu: "500" }        # deliberately impossible

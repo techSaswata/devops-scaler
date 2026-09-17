@@ -1,0 +1,281 @@
+
+=== 1. MULTI-CONTAINER POD — the sidecar pattern ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/pods/multi-container.yaml
+pod/multi-container created
+pod/multi-container condition met
+
+$ kubectl get pod multi-container
+NAME              READY   STATUS    RESTARTS   AGE
+multi-container   2/2     Running   0          1s
+>> READY 2/2 — two containers in ONE pod.
+
+$ kubectl get pod multi-container -o jsonpath='{range .spec.containers[*]}{.name}{"\n"}{end}'
+writer
+web
+
+--- the sidecar writes, the web container serves the same file ---
+
+$ kubectl logs multi-container -c writer --tail=2
+
+$ kubectl exec multi-container -c web -- cat /usr/share/nginx/html/index.html
+<h1>Written by the sidecar — update #2</h1>
+
+$ kubectl exec multi-container -c web -- curl -s http://localhost/
+<h1>Written by the sidecar — update #2</h1>
+>> They share a VOLUME (emptyDir) and a NETWORK namespace, which is why
+>> the web container reaches its own port on plain localhost.
+
+$ kubectl get pod multi-container -o jsonpath='{.status.podIP}{"\n"}'
+10.244.2.13
+>> ONE pod IP for both containers - that is the definition of a pod.
+
+=== 2. INIT CONTAINERS — ordered setup before the app starts ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/pods/init-container.yaml
+pod/init-demo created
+$ kubectl get pod init-demo   (caught mid-initialisation)
+NAME        READY   STATUS     RESTARTS   AGE
+init-demo   0/1     Init:1/2   0          4s
+
+$ kubectl get pod init-demo
+NAME        READY   STATUS    RESTARTS   AGE
+init-demo   1/1     Running   0          7s
+
+$ kubectl logs init-demo -c init-1-fetch
+[init-1] preparing content
+
+$ kubectl logs init-demo -c init-2-verify
+[init-2] verifying
+[init-2] content OK
+
+$ kubectl exec init-demo -- cat /usr/share/nginx/html/index.html
+Defaulted container "web" out of: web, init-1-fetch (init), init-2-verify (init)
+<h1>Prepared by init containers</h1>
+>> init-1 ran to completion, THEN init-2, THEN the app container.
+>> Init containers are how you wait for a database or fetch config
+>> without putting that logic in your application image.
+
+=== 3. POD LIFECYCLE — every phase, reproduced deliberately ===
+
+--- 3a. PENDING: the scheduler cannot place it ---
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/lifecycle/pending.yaml
+pod/lc-pending created
+
+$ kubectl get pod lc-pending
+NAME         READY   STATUS    RESTARTS   AGE
+lc-pending   0/1     Pending   0          5s
+$ kubectl describe pod lc-pending | grep -A4 Events
+Events:
+  Type     Reason            Age   From               Message
+  ----     ------            ----  ----               -------
+  Warning  FailedScheduling  5s    default-scheduler  0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 Insufficient cpu. preemption: 0/3 nodes are available: 3 Preemption is not helpful for scheduling.
+>> 'Insufficient cpu' — the pod requests 500 CPUs and no node has that.
+>> PENDING always means: not yet scheduled, or image not yet pulled.
+
+--- 3b. RUNNING ---
+
+$ kubectl get pod multi-container -o jsonpath='{.status.phase}{"\n"}'
+Running
+
+--- 3c. SUCCEEDED: exits 0, restartPolicy Never ---
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/lifecycle/succeeded.yaml
+pod/lc-succeeded created
+
+$ kubectl get pod lc-succeeded
+NAME           READY   STATUS      RESTARTS   AGE
+lc-succeeded   0/1     Completed   0          8s
+
+$ kubectl logs lc-succeeded
+doing some work
+done
+>> Completed / phase=Succeeded. A terminal state — it will not restart.
+
+--- 3d. FAILED: exits non-zero, restartPolicy Never ---
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/lifecycle/failed.yaml
+pod/lc-failed created
+
+$ kubectl get pod lc-failed
+NAME        READY   STATUS   RESTARTS   AGE
+lc-failed   0/1     Error    0          8s
+
+$ kubectl get pod lc-failed -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}{"\n"}'
+1
+>> Error / phase=Failed, exit code 1.
+
+--- 3e. CRASHLOOPBACKOFF: keeps dying, keeps being restarted ---
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/lifecycle/crashloop.yaml
+pod/lc-crashloop created
+watching the restart count climb:
+  t+12 s  STATUS=Error              RESTARTS=1
+  t+24 s  STATUS=Error              RESTARTS=2
+  t+36 s  STATUS=Error              RESTARTS=2
+  t+48 s  STATUS=Error              RESTARTS=3
+
+$ kubectl logs lc-crashloop --tail=3
+starting up...
+FATAL: cannot reach database
+$ kubectl describe pod lc-crashloop | grep -A5 Events
+Events:
+  Type     Reason     Age               From               Message
+  ----     ------     ----              ----               -------
+  Normal   Scheduled  49s               default-scheduler  Successfully assigned default/lc-crashloop to devops-hw-worker
+  Normal   Pulled     5s (x4 over 48s)  kubelet            Container image "busybox:1.36" already present on machine and can be accessed by the pod
+  Normal   Created    5s (x4 over 48s)  kubelet            Container created
+  Normal   Started    5s (x4 over 48s)  kubelet            Container started
+  Warning  BackOff    3s (x3 over 43s)  kubelet            Back-off restarting failed container crasher in pod lc-crashloop_default(62077330-2b53-4d7c-bb57-65aab57f384b)
+>> CrashLoopBackOff is NOT an error type - it is Kubernetes BACKING OFF.
+>> Restart delays double: 10s, 20s, 40s, 80s, 160s, capped at 5 minutes.
+>> The real error is in the LOGS, not in the status.
+
+--- 3f. IMAGEPULLBACKOFF: the image tag does not exist ---
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/lifecycle/imagepull.yaml
+pod/lc-imagepull created
+
+$ kubectl get pod lc-imagepull
+NAME           READY   STATUS         RESTARTS   AGE
+lc-imagepull   0/1     ErrImagePull   0          20s
+$ kubectl describe pod lc-imagepull | grep -A6 Events
+Events:
+  Type     Reason     Age   From               Message
+  ----     ------     ----  ----               -------
+  Normal   Scheduled  20s   default-scheduler  Successfully assigned default/lc-imagepull to devops-hw-worker2
+  Normal   Pulling    20s   kubelet            Pulling image "nginx:this-tag-does-not-exist-9999"
+  Warning  Failed     11s   kubelet            Failed to pull image "nginx:this-tag-does-not-exist-9999": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/nginx:this-tag-does-not-exist-9999": failed to resolve reference "docker.io/library/nginx:this-tag-does-not-exist-9999": docker.io/library/nginx:this-tag-does-not-exist-9999: not found
+  Warning  Failed     11s   kubelet            Error: ErrImagePull
+  Normal   BackOff    11s   kubelet            Back-off pulling image "nginx:this-tag-does-not-exist-9999"
+  Warning  Failed     11s   kubelet            Error: ImagePullBackOff
+>> Note the pod never reaches Running. ErrImagePull -> ImagePullBackOff.
+>> Causes: wrong tag, typo, private registry with no imagePullSecret.
+
+--- summary of every phase created above ---
+
+$ kubectl get pods -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount
+NAME              PHASE       READY    RESTARTS
+init-demo         Running     true     0
+lc-crashloop      Running     false    3
+lc-failed         Failed      false    0
+lc-imagepull      Pending     false    0
+lc-pending        Pending     <none>   <none>
+lc-succeeded      Succeeded   false    0
+multi-container   Running     true     0
+
+=== 4. PROBES ===
+--- 4a. all three probes on a healthy pod ---
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/probes/probes.yaml
+pod/probe-demo created
+pod/probe-demo condition met
+
+$ kubectl get pod probe-demo
+NAME         READY   STATUS    RESTARTS   AGE
+probe-demo   1/1     Running   0          4s
+
+$ kubectl get pod probe-demo -o jsonpath='{range .spec.containers[0]}startup={.startupProbe.httpGet.path} readiness={.readinessProbe.httpGet.path} liveness={.livenessProbe.httpGet.path}{end}{"\n"}'
+startup=/ readiness=/ liveness=/
+
+  startupProbe    runs FIRST and alone; while it fails, the other two are
+                  disabled. Gives a slow-booting app time WITHOUT weakening
+                  the liveness probe forever.
+  readinessProbe  "can this pod serve traffic right now?"
+                  Failing -> removed from Service endpoints. NOT restarted.
+  livenessProbe   "is this container wedged?"
+                  Failing -> the kubelet KILLS and restarts the container.
+
+--- 4b. a FAILING LIVENESS probe restarts a perfectly healthy container ---
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/probes/failing-liveness.yaml
+pod/bad-liveness created
+  t+15 s  STATUS=Running      RESTARTS=2
+  t+30 s  STATUS=Running      RESTARTS=3
+  t+45 s  STATUS=CrashLoopBackOff RESTARTS=3
+$ kubectl describe pod bad-liveness | grep -A4 Events
+Events:
+  Type     Reason     Age                From               Message
+  ----     ------     ----               ----               -------
+  Normal   Scheduled  45s                default-scheduler  Successfully assigned default/bad-liveness to devops-hw-worker2
+  Normal   Pulled     16s (x4 over 45s)  kubelet            Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+  Normal   Created    16s (x4 over 45s)  kubelet            Container created
+  Normal   Started    16s (x4 over 45s)  kubelet            Container started
+>> nginx is fine. The PROBE is wrong, and it is killing the container.
+>> A bad liveness probe turns a healthy app into a restart loop - which is
+>> why you should make liveness probes generous and readiness probes strict.
+
+--- 4c. a FAILING READINESS probe does NOT restart anything ---
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/probes/failing-readiness.yaml
+pod/bad-readiness created
+
+$ kubectl get pod bad-readiness
+NAME            READY   STATUS    RESTARTS   AGE
+bad-readiness   0/1     Running   0          21s
+>> Running, 0/1 READY, RESTARTS=0. The pod is alive but kept OUT of
+>> Service endpoints, so it simply receives no traffic.
+
+$ kubectl get endpoints -l app=readiness-test 2>/dev/null || echo '(no Service defined for it - see module 10)'
+
+=== 5. GRACEFUL TERMINATION — what 'kubectl delete pod' really does ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/09-k8s-pods-replicasets-deployments/manifests/lifecycle/termination.yaml
+pod/lc-termination created
+pod/lc-termination condition met
+
+$ kubectl get pod lc-termination
+NAME             READY   STATUS    RESTARTS   AGE
+lc-termination   1/1     Running   0          0s
+
+$ kubectl logs lc-termination
+[app] started, serving traffic
+
+$ kubectl delete pod lc-termination     (timing the whole shutdown)
+pod "lc-termination" deleted from default namespace
+deletion took 9s
+
+--- what the container logged while it was shutting down ---
+[app] started, serving traffic
+[app] SIGTERM received — draining connections
+[app] drained, exiting cleanly
+
+>> The preStop hook ran, THEN SIGTERM arrived, THEN the app drained for 5s
+>> and exited 0 on its own - it was never SIGKILLed. Total ~9s, well inside
+>> the 30s grace period.
+
+  THE SEQUENCE Kubernetes runs on delete:
+
+    1. pod marked Terminating, and REMOVED FROM SERVICE ENDPOINTS
+       (this happens first, so no new traffic is routed to it)
+    2. the preStop hook runs
+    3. SIGTERM is sent to PID 1
+    4. Kubernetes waits up to terminationGracePeriodSeconds (30s here)
+    5. still alive? SIGKILL
+
+  Steps 2 and 3 share the same grace period - a preStop that sleeps longer
+  than the grace period leaves no time for SIGTERM handling at all.
+
+  WHY preStop EXISTS: endpoint removal is eventually consistent. Every
+  kube-proxy has to be told. A short preStop sleep covers that window so
+  in-flight requests are not sent to a pod that has already shut down.
+
+  THE COMMON BUG: if your app runs under a shell wrapper, the shell is PID 1
+  and SIGTERM never reaches your process - the pod is SIGKILLed after the full
+  grace period every time. Use 'exec' in your entrypoint, or a tiny init.
+
+=== 6. CLEAN UP ===
+
+$ kubectl delete pod --all --force --grace-period=0
+Warning: Immediate deletion does not wait for confirmation that the running resource has been terminated. The resource may continue to run on the cluster indefinitely.
+pod "bad-liveness" force deleted from default namespace
+pod "bad-readiness" force deleted from default namespace
+pod "init-demo" force deleted from default namespace
+pod "lc-crashloop" force deleted from default namespace
+pod "lc-failed" force deleted from default namespace
+pod "lc-imagepull" force deleted from default namespace
+pod "lc-pending" force deleted from default namespace
+pod "lc-succeeded" force deleted from default namespace
+pod "multi-container" force deleted from default namespace
+pod "probe-demo" force deleted from default namespace
