@@ -29,6 +29,9 @@ docker rmi -f \
   multistage-app:latest singlestage-app:latest \
   nettools net-lab linux-lab-systemd 2>/dev/null
 
+echo "==> deleting the Kubernetes cluster (modules 08-11)"
+kind delete cluster --name devops-hw 2>/dev/null || true
+
 echo
 echo "Done. Remaining containers:"
 docker ps --format 'table {{.Names}}\t{{.Status}}'
