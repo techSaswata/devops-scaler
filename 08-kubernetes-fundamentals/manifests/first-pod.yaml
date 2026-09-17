@@ -1,0 +1,20 @@
+# The smallest useful Pod: one container, declared rather than commanded.
+apiVersion: v1                 # core API group
+kind: Pod                      # what to create
+metadata:
+  name: hello-pod
+  labels:
+    app: hello                 # labels are how Services and ReplicaSets find pods
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports:
+        - containerPort: 80    # documentation; it does not publish anything
+      resources:
+        requests:              # what the SCHEDULER reserves for this pod
+          cpu: "50m"
+          memory: "32Mi"
+        limits:                # what the kubelet ENFORCES at runtime
+          cpu: "200m"
+          memory: "128Mi"

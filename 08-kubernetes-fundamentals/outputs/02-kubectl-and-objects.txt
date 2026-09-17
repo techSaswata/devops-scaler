@@ -1,0 +1,240 @@
+
+==================== 1. IMPERATIVE vs DECLARATIVE ====================
+IMPERATIVE — you tell Kubernetes WHAT TO DO, step by step:
+
+$ kubectl run nginx-imperative --image=nginx:1.27-alpine
+pod/nginx-imperative created
+
+$ kubectl get pod nginx-imperative
+NAME               READY   STATUS              RESTARTS   AGE
+nginx-imperative   0/1     ContainerCreating   0          0s
+
+>> Fine for a quick test. But there is no file, so nothing is reviewable,
+>> version-controlled or repeatable.
+
+DECLARATIVE — you describe the DESIRED STATE in a file and apply it:
+$ cat manifests/first-pod.yaml
+# The smallest useful Pod: one container, declared rather than commanded.
+apiVersion: v1                 # core API group
+kind: Pod                      # what to create
+metadata:
+  name: hello-pod
+  labels:
+    app: hello                 # labels are how Services and ReplicaSets find pods
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports:
+        - containerPort: 80    # documentation; it does not publish anything
+      resources:
+        requests:              # what the SCHEDULER reserves for this pod
+          cpu: "50m"
+          memory: "32Mi"
+        limits:                # what the kubelet ENFORCES at runtime
+          cpu: "200m"
+          memory: "128Mi"
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/08-kubernetes-fundamentals/manifests/first-pod.yaml
+pod/hello-pod created
+
+>> This is the form that belongs in git, and the form to use everywhere.
+>> 'apply' is idempotent - run it twice and the second is a no-op:
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/08-kubernetes-fundamentals/manifests/first-pod.yaml
+pod/hello-pod unchanged
+>> 'unchanged', not 'created' - Kubernetes diffed it and found nothing to do.
+
+==================== 2. WAIT FOR THE POD, THEN INSPECT IT ====================
+pod/hello-pod condition met
+
+$ kubectl get pods
+NAME               READY   STATUS    RESTARTS   AGE
+hello-pod          1/1     Running   0          1s
+nginx-imperative   1/1     Running   0          1s
+
+$ kubectl get pod hello-pod -o wide
+NAME        READY   STATUS    RESTARTS   AGE   IP           NODE                NOMINATED NODE   READINESS GATES
+hello-pod   1/1     Running   0          1s    10.244.2.4   devops-hw-worker2   <none>           <none>
+
+>> The pod has its OWN IP (10.244.x.x) from the CNI, and a NODE it landed on.
+
+==================== 3. kubectl get — output formats ====================
+
+$ kubectl get pod hello-pod
+NAME        READY   STATUS    RESTARTS   AGE
+hello-pod   1/1     Running   0          1s
+
+$ kubectl get pod hello-pod -o yaml | head -25
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Pod","metadata":{"annotations":{},"labels":{"app":"hello"},"name":"hello-pod","namespace":"default"},"spec":{"containers":[{"image":"nginx:1.27-alpine","name":"web","ports":[{"containerPort":80}],"resources":{"limits":{"cpu":"200m","memory":"128Mi"},"requests":{"cpu":"50m","memory":"32Mi"}}}]}}
+  creationTimestamp: "2026-09-17T18:00:38Z"
+  generation: 1
+  labels:
+    app: hello
+  name: hello-pod
+  namespace: default
+  resourceVersion: "1694"
+  uid: 3723a5cc-8f97-4aa9-a84e-0c285ffeef2e
+spec:
+  containers:
+  - image: nginx:1.27-alpine
+    imagePullPolicy: IfNotPresent
+    name: web
+    ports:
+    - containerPort: 80
+      protocol: TCP
+    resources:
+      limits:
+        cpu: 200m
+
+$ kubectl get pod hello-pod -o jsonpath='{.status.podIP}{"\n"}'
+10.244.2.4
+
+$ kubectl get pods -o custom-columns=NAME:.metadata.name,NODE:.spec.nodeName,IP:.status.podIP,STATUS:.status.phase
+NAME               NODE                IP           STATUS
+hello-pod          devops-hw-worker2   10.244.2.4   Running
+nginx-imperative   devops-hw-worker    10.244.1.3   Running
+
+$ kubectl get pods --show-labels
+NAME               READY   STATUS    RESTARTS   AGE   LABELS
+hello-pod          1/1     Running   0          1s    app=hello
+nginx-imperative   1/1     Running   0          1s    run=nginx-imperative
+
+$ kubectl get pods -l app=hello
+NAME        READY   STATUS    RESTARTS   AGE
+hello-pod   1/1     Running   0          1s
+>> Label selectors are the backbone of Kubernetes - Services, ReplicaSets
+>> and Deployments all find their pods this way (modules 09 and 10).
+
+==================== 4. kubectl describe — the field-level view plus EVENTS ====================
+$ kubectl describe pod hello-pod
+Name:             hello-pod
+Namespace:        default
+Priority:         0
+Service Account:  default
+Node:             devops-hw-worker2/172.19.0.2
+Start Time:       Thu, 17 Sep 2026 23:30:38 +0530
+Labels:           app=hello
+Annotations:      <none>
+Status:           Running
+IP:               10.244.2.4
+IPs:
+  IP:  10.244.2.4
+Containers:
+  web:
+    Container ID:   containerd://67d9956b573639d8e02c3f8e9507b903c020532cbdf2530cfe3f9459a4c5ae11
+    Image:          nginx:1.27-alpine
+    Image ID:       docker.io/library/nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    Port:           80/TCP
+    Host Port:      0/TCP
+    State:          Running
+   ...
+Events:
+  Type    Reason     Age   From               Message
+  ----    ------     ----  ----               -------
+  Normal  Scheduled  1s    default-scheduler  Successfully assigned default/hello-pod to devops-hw-worker2
+  Normal  Pulled     0s    kubelet            Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+  Normal  Created    0s    kubelet            Container created
+  Normal  Started    0s    kubelet            Container started
+
+>> The Events block is the first place to look when anything is wrong.
+>> Scheduled -> Pulling -> Pulled -> Created -> Started is the happy path.
+
+==================== 5. kubectl logs / exec / port-forward ====================
+
+$ kubectl logs hello-pod --tail=5
+2026/09/17 18:00:39 [notice] 1#1: start worker process 35
+2026/09/17 18:00:39 [notice] 1#1: start worker process 36
+2026/09/17 18:00:39 [notice] 1#1: start worker process 37
+2026/09/17 18:00:39 [notice] 1#1: start worker process 38
+2026/09/17 18:00:39 [notice] 1#1: start worker process 39
+
+$ kubectl exec hello-pod -- nginx -v
+nginx version: nginx/1.27.5
+
+$ kubectl exec hello-pod -- hostname
+hello-pod
+
+$ kubectl exec hello-pod -- curl -s -o /dev/null -w 'self HTTP %{http_code}\n' http://localhost
+self HTTP 200
+
+--- port-forward: reach a pod from the host without any Service ---
+$ kubectl port-forward pod/hello-pod 18080:80 &
+$ curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://localhost:18080/
+HTTP 200
+>> Useful for debugging. NOT a substitute for a Service (module 10).
+
+==================== 6. kubectl explain — the built-in API reference ====================
+
+$ kubectl explain pod.spec.containers.resources | head -14
+KIND:       Pod
+VERSION:    v1
+
+FIELD: resources <ResourceRequirements>
+
+
+DESCRIPTION:
+    Compute Resources required by this container. Cannot be updated. More info:
+    https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+    ResourceRequirements describes the compute resource requirements.
+    
+FIELDS:
+  claims	<[]ResourceClaim>
+    Claims lists the names of resources, defined in spec.resourceClaims, that
+scripts/02-kubectl-and-objects.sh: line 5: 85806 Terminated: 15          kubectl port-forward pod/hello-pod 18080:80 > /dev/null 2>&1
+
+>> No need to search the web for field names; the API server documents itself.
+
+==================== 7. THE RECONCILIATION LOOP — the single most important idea ====================
+A bare Pod has NO controller watching it. Delete it and it stays dead:
+
+$ kubectl delete pod nginx-imperative
+pod "nginx-imperative" deleted from default namespace
+
+$ kubectl get pods
+NAME        READY   STATUS    RESTARTS   AGE
+hello-pod   1/1     Running   0          5s
+
+>> 'nginx-imperative' is gone for good. Nothing is reconciling it.
+>> That is precisely why you use Deployments instead of bare Pods -
+>> demonstrated in module 09.
+
+==================== 8. NAMESPACES IN PRACTICE ====================
+
+$ kubectl create namespace demo
+namespace/demo created
+
+$ kubectl run ns-test --image=nginx:1.27-alpine -n demo
+pod/ns-test created
+
+$ kubectl get pods -n demo
+NAME      READY   STATUS              RESTARTS   AGE
+ns-test   0/1     ContainerCreating   0          1s
+
+--- the same name can exist in two namespaces without colliding ---
+
+$ kubectl get pods --all-namespaces -l run=ns-test
+NAMESPACE   NAME      READY   STATUS              RESTARTS   AGE
+demo        ns-test   0/1     ContainerCreating   0          1s
+
+--- objects are invisible across namespaces unless you ask ---
+
+$ kubectl get pods | grep ns-test || echo '(not visible in the default namespace)'
+(not visible in the default namespace)
+
+$ kubectl delete namespace demo
+namespace "demo" deleted
+>> Deleting a namespace deletes EVERYTHING inside it. Handle with care.
+
+==================== 9. CLEAN UP ====================
+
+$ kubectl delete -f /Users/techsaswata/Downloads/devops-scaler/08-kubernetes-fundamentals/manifests/first-pod.yaml
+pod "hello-pod" deleted from default namespace
+
+$ kubectl get pods
+No resources found in default namespace.

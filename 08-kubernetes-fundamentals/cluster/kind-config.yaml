@@ -1,0 +1,40 @@
+# A genuine multi-node Kubernetes cluster, run locally with kind
+# (Kubernetes IN Docker). Each "node" is a Docker container running a full
+# kubelet and container runtime, so the control-plane / worker split is real
+# rather than simulated.
+#
+#   kind create cluster --name devops-hw --config kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: devops-hw
+
+nodes:
+  # ---------- control plane ----------
+  - role: control-plane
+    # Label the node so the ingress-nginx controller (module 11) can be
+    # scheduled onto it with a nodeSelector.
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    # Publish 80/443 from the node container to the host, so Ingress is
+    # reachable at http://localhost from the macOS browser.
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+      # A fixed NodePort mapping, used in module 10 to reach a NodePort
+      # Service from the host.
+      - containerPort: 30080
+        hostPort: 30080
+        protocol: TCP
+
+  # ---------- workers ----------
+  # Two workers so scheduling, DaemonSets and pod distribution are observable.
+  - role: worker
+  - role: worker

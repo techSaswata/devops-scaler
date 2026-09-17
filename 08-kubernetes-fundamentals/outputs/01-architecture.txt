@@ -1,0 +1,237 @@
+
+==================== 1. THE CLUSTER ====================
+
+$ kubectl cluster-info
+Kubernetes control plane is running at https://127.0.0.1:55736
+CoreDNS is running at https://127.0.0.1:55736/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+
+To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+
+$ kubectl version
+Client Version: v1.34.1
+Kustomize Version: v5.7.1
+Server Version: v1.37.0
+Warning: version difference between client (1.34) and server (1.37) exceeds the supported minor version skew of +/-1
+
+$ kind get clusters
+devops-hw
+
+>> Each kind 'node' is a Docker container running a real kubelet and
+>> containerd. The control-plane / worker split below is genuine.
+
+$ docker ps --filter name=devops-hw --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+NAMES                     IMAGE                  STATUS
+devops-hw-worker2         kindest/node:v1.37.0   Up About a minute
+devops-hw-worker          kindest/node:v1.37.0   Up About a minute
+devops-hw-control-plane   kindest/node:v1.37.0   Up About a minute
+
+==================== 2. NODES ====================
+
+$ kubectl get nodes
+NAME                      STATUS   ROLES           AGE   VERSION
+devops-hw-control-plane   Ready    control-plane   77s   v1.37.0
+devops-hw-worker          Ready    <none>          63s   v1.37.0
+devops-hw-worker2         Ready    <none>          62s   v1.37.0
+
+$ kubectl get nodes -o wide
+NAME                      STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION             CONTAINER-RUNTIME
+devops-hw-control-plane   Ready    control-plane   77s   v1.37.0   172.19.0.4    <none>        Debian GNU/Linux 13 (trixie)   6.10.14-linuxkit (arm64)   containerd://2.3.4
+devops-hw-worker          Ready    <none>          63s   v1.37.0   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.10.14-linuxkit (arm64)   containerd://2.3.4
+devops-hw-worker2         Ready    <none>          62s   v1.37.0   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   6.10.14-linuxkit (arm64)   containerd://2.3.4
+
+--- the control plane is marked by a role LABEL and protected by a TAINT ---
+
+$ kubectl get node devops-hw-control-plane -o jsonpath='{.metadata.labels}' | tr ',' '\n' | head -12
+{"beta.kubernetes.io/arch":"arm64"
+"beta.kubernetes.io/os":"linux"
+"ingress-ready":"true"
+"kubernetes.io/arch":"arm64"
+"kubernetes.io/hostname":"devops-hw-control-plane"
+"kubernetes.io/os":"linux"
+"node-role.kubernetes.io/control-plane":""
+"node.kubernetes.io/exclude-from-external-load-balancers":""}
+
+$ kubectl get nodes -o custom-columns=NAME:.metadata.name,TAINTS:.spec.taints[*].key
+NAME                      TAINTS
+devops-hw-control-plane   node-role.kubernetes.io/control-plane
+devops-hw-worker          <none>
+devops-hw-worker2         <none>
+
+>> 'node-role.kubernetes.io/control-plane:NoSchedule' is why ordinary
+>> workloads land on the workers and not on the control plane.
+
+==================== 3. WHAT A NODE REPORTS TO THE API SERVER ====================
+$ kubectl describe node devops-hw-worker
+Name:               devops-hw-worker
+Roles:              <none>
+Labels:             beta.kubernetes.io/arch=arm64
+                    beta.kubernetes.io/os=linux
+                    kubernetes.io/arch=arm64
+                    kubernetes.io/hostname=devops-hw-worker
+                    kubernetes.io/os=linux
+Annotations:        node.alpha.kubernetes.io/ttl: 0
+                    volumes.kubernetes.io/controller-managed-attach-detach: true
+CreationTimestamp:  Thu, 17 Sep 2026 23:20:11 +0530
+Taints:             <none>
+Unschedulable:      false
+   ...
+Conditions:
+  Type             Status  LastHeartbeatTime                 LastTransitionTime                Reason                       Message
+  ----             ------  -----------------                 ------------------                ------                       -------
+  MemoryPressure   False   Thu, 17 Sep 2026 23:20:24 +0530   Thu, 17 Sep 2026 23:20:11 +0530   KubeletHasSufficientMemory   kubelet has sufficient memory available
+  DiskPressure     False   Thu, 17 Sep 2026 23:20:24 +0530   Thu, 17 Sep 2026 23:20:11 +0530   KubeletHasNoDiskPressure     kubelet has no disk pressure
+  PIDPressure      False   Thu, 17 Sep 2026 23:20:24 +0530   Thu, 17 Sep 2026 23:20:11 +0530   KubeletHasSufficientPID      kubelet has sufficient PID available
+  Ready            True    Thu, 17 Sep 2026 23:20:24 +0530   Thu, 17 Sep 2026 23:20:24 +0530   KubeletReady                 kubelet is posting ready status
+Addresses:
+   ...
+Capacity:
+  cpu:                6
+  ephemeral-storage:  485473984512
+  hugepages-1Gi:      0
+  hugepages-2Mi:      0
+  hugepages-32Mi:     0
+  hugepages-64Ki:     0
+  memory:             8025968Ki
+  pods:               110
+Allocatable:
+  cpu:                6
+  ephemeral-storage:  485473984512
+  hugepages-1Gi:      0
+  hugepages-2Mi:      0
+  hugepages-32Mi:     0
+  hugepages-64Ki:     0
+
+>> The kubelet on each node continuously posts this status. When it stops,
+>> the node-controller marks the node NotReady and evicts its pods.
+
+==================== 4. CONTROL PLANE COMPONENTS — running as real pods ====================
+
+$ kubectl get pods -n kube-system -o wide
+NAME                                              READY   STATUS    RESTARTS   AGE   IP           NODE                      NOMINATED NODE   READINESS GATES
+coredns-559f6c778d-2twbg                          1/1     Running   0          67s   10.244.0.3   devops-hw-control-plane   <none>           <none>
+coredns-559f6c778d-9t8tc                          1/1     Running   0          67s   10.244.0.4   devops-hw-control-plane   <none>           <none>
+etcd-devops-hw-control-plane                      1/1     Running   0          77s   172.19.0.4   devops-hw-control-plane   <none>           <none>
+kindnet-dx5ns                                     1/1     Running   0          67s   172.19.0.4   devops-hw-control-plane   <none>           <none>
+kindnet-nmgvm                                     1/1     Running   0          62s   172.19.0.2   devops-hw-worker2         <none>           <none>
+kindnet-nmtth                                     1/1     Running   0          63s   172.19.0.3   devops-hw-worker          <none>           <none>
+kube-apiserver-devops-hw-control-plane            1/1     Running   0          76s   172.19.0.4   devops-hw-control-plane   <none>           <none>
+kube-controller-manager-devops-hw-control-plane   1/1     Running   0          77s   172.19.0.4   devops-hw-control-plane   <none>           <none>
+kube-proxy-6sh5b                                  1/1     Running   0          67s   172.19.0.4   devops-hw-control-plane   <none>           <none>
+kube-proxy-qwm9w                                  1/1     Running   0          62s   172.19.0.2   devops-hw-worker2         <none>           <none>
+kube-proxy-znqkb                                  1/1     Running   0          63s   172.19.0.3   devops-hw-worker          <none>           <none>
+kube-scheduler-devops-hw-control-plane            1/1     Running   0          77s   172.19.0.4   devops-hw-control-plane   <none>           <none>
+
+
+  WHAT EACH ONE DOES
+
+  kube-apiserver        The front door. EVERY read and write goes through it -
+                        kubectl, the kubelets, the controllers. It is the only
+                        component that talks to etcd.
+
+  etcd                  The database. A distributed key-value store holding the
+                        entire cluster state. Lose etcd and you lose the cluster;
+                        this is the one thing you must back up.
+
+  kube-scheduler        Watches for Pods with no node assigned, and picks one -
+                        by filtering nodes that CAN run it (resources, taints,
+                        affinity), then scoring the survivors.
+
+  kube-controller-      Runs the control loops: node, replicaset, deployment,
+  manager               endpoint, job controllers and more. Each loop compares
+                        DESIRED state with ACTUAL state and acts on the gap.
+
+  ON EVERY NODE (including the control plane)
+
+  kubelet               The node agent. Takes the PodSpecs assigned to its node
+                        and makes them true, via the container runtime. Reports
+                        node and pod status back to the API server.
+                        NOTE: it is NOT a pod - see section 5.
+
+  kube-proxy            Programs the node's iptables/IPVS rules so Service IPs
+                        resolve to real pod IPs. This is what makes a ClusterIP
+                        actually route (module 10).
+
+  kindnet               The CNI plugin in this cluster - gives every pod a
+                        routable IP. On a cloud cluster this would be Calico,
+                        Cilium, flannel, etc.
+
+
+==================== 5. THE KUBELET IS NOT A POD — it is a host process ====================
+$ docker exec devops-hw-worker systemctl is-active kubelet
+active
+
+$ docker exec devops-hw-worker ps -o pid,comm -C kubelet
+    PID COMMAND
+    236 kubelet
+
+>> This is the bootstrap problem: something must start the pods, so it
+>> cannot itself be a pod. The kubelet runs as a systemd service on the host.
+
+==================== 6. STATIC PODS — how the control plane bootstraps itself ====================
+$ docker exec devops-hw-control-plane ls /etc/kubernetes/manifests/
+etcd.yaml
+kube-apiserver.yaml
+kube-controller-manager.yaml
+kube-scheduler.yaml
+
+>> The kubelet watches this directory and runs whatever it finds, WITHOUT
+>> going through the API server. That is how kube-apiserver itself gets
+>> started - a pod that the scheduler could not possibly have scheduled.
+
+$ kubectl get pods -n kube-system kube-apiserver-devops-hw-control-plane -o jsonpath='{.metadata.ownerReferences}'
+Node
+>> Owned by 'Node', not by a ReplicaSet - the signature of a static pod.
+
+==================== 7. NAMESPACES ====================
+
+$ kubectl get namespaces
+NAME                 STATUS   AGE
+default              Active   78s
+kube-node-lease      Active   78s
+kube-public          Active   78s
+kube-system          Active   78s
+local-path-storage   Active   74s
+
+  default           where your objects go if you do not say otherwise
+  kube-system       the cluster's own components - do not put your apps here
+  kube-public       world-readable; holds cluster-info for bootstrapping
+  kube-node-lease   node heartbeat Lease objects (cheaper than status updates)
+  local-path-storage  kind's default StorageClass provisioner
+
+$ kubectl get pods --all-namespaces --no-headers | wc -l
+      13
+(total pods running across the whole cluster)
+
+==================== 8. WHAT THE API SERVER ACTUALLY EXPOSES ====================
+
+$ kubectl api-resources --namespaced=true | head -14
+NAME                        SHORTNAMES   APIVERSION                     NAMESPACED   KIND
+bindings                                 v1                             true         Binding
+configmaps                  cm           v1                             true         ConfigMap
+endpoints                   ep           v1                             true         Endpoints
+events                      ev           v1                             true         Event
+limitranges                 limits       v1                             true         LimitRange
+persistentvolumeclaims      pvc          v1                             true         PersistentVolumeClaim
+pods                        po           v1                             true         Pod
+podtemplates                             v1                             true         PodTemplate
+replicationcontrollers      rc           v1                             true         ReplicationController
+resourcequotas              quota        v1                             true         ResourceQuota
+secrets                                  v1                             true         Secret
+serviceaccounts             sa           v1                             true         ServiceAccount
+services                    svc          v1                             true         Service
+
+
+$ kubectl api-resources --namespaced=false | head -10
+NAME                                SHORTNAMES   APIVERSION                        NAMESPACED   KIND
+componentstatuses                   cs           v1                                false        ComponentStatus
+namespaces                          ns           v1                                false        Namespace
+nodes                               no           v1                                false        Node
+persistentvolumes                   pv           v1                                false        PersistentVolume
+mutatingadmissionpolicies                        admissionregistration.k8s.io/v1   false        MutatingAdmissionPolicy
+mutatingadmissionpolicybindings                  admissionregistration.k8s.io/v1   false        MutatingAdmissionPolicyBinding
+mutatingwebhookconfigurations                    admissionregistration.k8s.io/v1   false        MutatingWebhookConfiguration
+validatingadmissionpolicies                      admissionregistration.k8s.io/v1   false        ValidatingAdmissionPolicy
+validatingadmissionpolicybindings                admissionregistration.k8s.io/v1   false        ValidatingAdmissionPolicyBinding
+
+>> Note the SHORTNAMES column - 'po', 'svc', 'deploy', 'rs', 'ns', 'cm'.
+>> Also note APIVERSION: 'v1' for core objects, 'apps/v1' for Deployments.
