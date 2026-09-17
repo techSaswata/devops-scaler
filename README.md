@@ -36,7 +36,22 @@ in the corresponding `scripts/` directory.
 
 ## 2. Assignment coverage
 
-Each requirement of the assignment is mapped below to the deliverable that satisfies it.
+Each requirement is mapped below to the deliverable that satisfies it.
+
+> **Where the requirements come from.** Modules 01–07 follow the written homework document
+> task for task. That document ends at Docker Networking and contains no Kubernetes section,
+> so for modules 08–11 the requirements were taken from the **session READMEs and lab guides
+> in the course repository**, as instructed. Specifically:
+>
+> | Module | Source of requirements |
+> |---|---|
+> | 08 | `session9-k8s/` (links to the course's `architecture.md`, `k8s-commands.md`, `namespaces.md`) |
+> | 09 | `session10-k8s-core-objects/pod-lifecycle/README.md` (12 numbered states) and the four `deployment-strategies` READMEs |
+> | 10 | `session-11-kubernetes-services/` — the five per-type READMEs, plus `service.md` and `fqdn.md` |
+> | 11 | `session-12-ingress-configmaps-secrets/lab.md` — its **Lab Completion Checklist**, followed item for item |
+>
+> Module 11's checklist is the only explicit, numbered deliverable list in the source
+> material, which is why §2.11 reproduces it verbatim.
 
 ### 2.1 Linux Fundamentals → [`01-linux-fundamentals/`](01-linux-fundamentals/)
 
@@ -268,7 +283,8 @@ substituting macOS equivalents:
 
 ## 4. Reproducing the results
 
-All results can be regenerated. Docker must be running.
+All results can be regenerated. Docker must be running; modules 08–11 additionally require
+`kind` and `kubectl`.
 
 ```bash
 # Module 01 — Linux Fundamentals
@@ -461,3 +477,4 @@ Each module directory follows the same layout:
 | `screenshots/` | The PNG files embedded in the module README |
 | `lab/` | Supporting Dockerfiles, where a purpose-built environment was required |
 | `manifests/` | Kubernetes YAML applied to the cluster (modules 08–11) |
+| `cluster/` | The kind cluster definition (module 08 only) |
