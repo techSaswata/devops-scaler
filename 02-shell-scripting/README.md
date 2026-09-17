@@ -13,8 +13,7 @@ The script is [`sysinfo.sh`](sysinfo.sh). It was executed twice, for real:
 
 Both runs were driven through a **real pseudo-terminal**, not a pipe. That matters:
 `read -p` only renders its prompt when stdin is a TTY, so a piped run would have hidden
-the prompts and made the transcript worthless as proof. The helper that does this is
-[`../tools/ptyrun.py`](../tools/ptyrun.py).
+the prompts and made the transcript worthless as proof.
 
 ```bash
 ./sysinfo.sh          # just run it and answer the three prompts

@@ -314,7 +314,6 @@ Docker Desktop's containerd image store. Both measures are reported where releva
 devops-scaler/
 ├── README.md                     This document
 ├── cleanup.sh                    Removes all demo containers, networks and images
-├── tools/                        Evidence-capture utilities (see §8)
 ├── 01-linux-fundamentals/
 ├── 02-shell-scripting/
 ├── 03-networking/
@@ -333,15 +332,3 @@ Each module directory follows the same layout:
 | `outputs/` | Raw captured `.txt` logs, committed so screenshots can be verified against source |
 | `screenshots/` | The PNG files embedded in the module README |
 | `lab/` | Supporting Dockerfiles, where a purpose-built environment was required |
-
----
-
-## 8. Evidence-capture tooling
-
-Three small utilities support the collection of verifiable evidence.
-
-| Tool | Purpose |
-|---|---|
-| [`tools/ptyrun.py`](tools/ptyrun.py) | Executes a command in a real pseudo-terminal. Required because `read -p` renders its prompt only when stdin is a TTY; piping input would have suppressed the prompts and invalidated the Shell Scripting transcript as evidence. |
-| [`tools/termshot.py`](tools/termshot.py) | Renders captured terminal output into a PNG. Input is read from the committed `.txt` logs, so every screenshot is traceable to its source. |
-| [`tools/webshot.sh`](tools/webshot.sh) | Captures headless-Chrome screenshots of the running applications at their live `localhost` URLs. |

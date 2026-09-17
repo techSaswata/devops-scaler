@@ -8,3 +8,6 @@ __pycache__/
 
 # assignment source — kept locally, never published
 docs/
+
+# local tooling — not part of the submission
+tools/
