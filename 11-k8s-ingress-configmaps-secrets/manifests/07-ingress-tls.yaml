@@ -1,0 +1,28 @@
+# TLS TERMINATION at the Ingress.
+# The controller holds the certificate and decrypts; traffic to the backend pod
+# is plain HTTP inside the cluster. The cert lives in a Secret of type
+# kubernetes.io/tls, created by the script with `kubectl create secret tls`.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: yatri-tls-ingress
+  namespace: default
+  annotations:
+    # Now that there IS a certificate, DO redirect http -> https.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - secure.yatri.local
+      secretName: yatri-tls-secret     # must exist in the SAME namespace
+  rules:
+    - host: secure.yatri.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: yatri-frontend-service
+                port: { number: 80 }

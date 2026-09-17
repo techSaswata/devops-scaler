@@ -1,0 +1,82 @@
+# Backend — reads the ConfigMap and the Secret as environment variables and
+# echoes them back, so injection can be verified over HTTP as well as by exec.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yatri-backend
+  namespace: default
+  labels: { app: yatri-backend }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: yatri-backend }
+  template:
+    metadata:
+      labels: { app: yatri-backend }
+    spec:
+      containers:
+        - name: backend
+          image: python:3.11-alpine
+          command: ["sh","-c"]
+          args:
+            - |
+              python3 -c "
+              import os, socket
+              from http.server import HTTPServer, BaseHTTPRequestHandler
+              class H(BaseHTTPRequestHandler):
+                  def log_message(self, *a): pass
+                  def do_GET(self):
+                      pw = os.getenv('POSTGRES_PASSWORD','unknown')
+                      body = (
+                        'Yatri Backend API\n'
+                        '=================\n'
+                        f\"pod             : {socket.gethostname()}\n\"
+                        f\"ENVIRONMENT     : {os.getenv('ENVIRONMENT','unknown')}\n\"
+                        f\"LOG_LEVEL       : {os.getenv('LOG_LEVEL','unknown')}\n\"
+                        f\"DEFAULT_CURRENCY: {os.getenv('DEFAULT_CURRENCY','unknown')}\n\"
+                        f\"MAX_BOOKING_DAYS: {os.getenv('MAX_BOOKING_DAYS','unknown')}\n\"
+                        f\"POSTGRES_USER   : {os.getenv('POSTGRES_USER','unknown')}\n\"
+                        f\"POSTGRES_DB     : {os.getenv('POSTGRES_DB','unknown')}\n\"
+                        # length is printed instead of the password itself, and it is
+                        # how the trailing-newline bug is detected (14 vs 15).
+                        f\"PASSWORD_LENGTH : {len(pw)}\n\"
+                      ).encode()
+                      self.send_response(200)
+                      self.send_header('Content-Type','text/plain')
+                      self.send_header('Content-Length', str(len(body)))
+                      self.end_headers()
+                      self.wfile.write(body)
+              HTTPServer(('0.0.0.0',5000), H).serve_forever()
+              "
+          ports:
+            - containerPort: 5000
+          # envFrom: import EVERY key in the ConfigMap as an env var
+          envFrom:
+            - configMapRef:
+                name: yatri-app-config
+          # env + secretKeyRef: import SPECIFIC keys from the Secret
+          env:
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: yatri-db-secret, key: POSTGRES_USER } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: yatri-db-secret, key: POSTGRES_PASSWORD } }
+            - name: POSTGRES_DB
+              valueFrom: { secretKeyRef: { name: yatri-db-secret, key: POSTGRES_DB } }
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits:   { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: yatri-backend-service
+  namespace: default
+  labels: { app: yatri-backend }
+spec:
+  type: ClusterIP
+  selector: { app: yatri-backend }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5000
+      protocol: TCP

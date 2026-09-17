@@ -1,0 +1,49 @@
+# Frontend — serves a page whose HTML comes from a ConfigMap MOUNTED AS A VOLUME.
+# It also imports the same ConfigMap as env vars, so both consumption styles are
+# present on one pod and can be compared when the ConfigMap changes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yatri-frontend
+  namespace: default
+  labels: { app: yatri-frontend }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: yatri-frontend }
+  template:
+    metadata:
+      labels: { app: yatri-frontend }
+    spec:
+      volumes:
+        - name: html
+          configMap:
+            name: yatri-frontend-html     # each key becomes a FILE
+      containers:
+        - name: frontend
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80 }]
+          volumeMounts:
+            - name: html
+              mountPath: /usr/share/nginx/html
+          envFrom:
+            - configMapRef:
+                name: yatri-app-config
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits:   { cpu: "100m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: yatri-frontend-service
+  namespace: default
+  labels: { app: yatri-frontend }
+spec:
+  type: ClusterIP
+  selector: { app: yatri-frontend }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP

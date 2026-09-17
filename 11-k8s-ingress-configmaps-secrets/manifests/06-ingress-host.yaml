@@ -1,0 +1,30 @@
+# HOST-BASED routing: two hostnames on the SAME IP, each to a different service.
+# This is virtual hosting - the controller reads the HTTP Host header to decide.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: yatri-host-ingress
+  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: portal.yatri.local        # -> frontend
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: yatri-frontend-service
+                port: { number: 80 }
+    - host: api.yatri.local           # -> backend
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: yatri-backend-service
+                port: { number: 80 }

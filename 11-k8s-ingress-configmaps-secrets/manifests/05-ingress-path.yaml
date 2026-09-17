@@ -1,0 +1,34 @@
+# PATH-BASED routing: one hostname, two backends split by URL path.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: yatri-ingress
+  namespace: default
+  labels: { app: yatri-app }
+  annotations:
+    # No TLS on this one, so do not bounce HTTP to HTTPS.
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # Allow regex capture groups in the path rules below.
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    # Strip the /api prefix before forwarding. $2 is the second capture group.
+    # Without this the backend would receive /api/foo instead of /foo.
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx        # WHICH controller should pick this up
+  rules:
+    - host: yatri.local
+      http:
+        paths:
+          # More specific rule FIRST.
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: yatri-backend-service
+                port: { number: 80 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: yatri-frontend-service
+                port: { number: 80 }

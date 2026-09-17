@@ -1,0 +1,108 @@
+
+=== 1. THE STARTING STATE ===
+
+$ kubectl get configmap yatri-app-config -o jsonpath='{.data.LOG_LEVEL}{"  "}{.data.DEFAULT_CURRENCY}{"\n"}'
+INFO  INR
+$ curl -s -H 'Host: yatri.local' http://localhost/api/ | grep -E 'LOG_LEVEL|CURRENCY'
+LOG_LEVEL       : DEBUG
+DEFAULT_CURRENCY: USD
+
+=== 2. UPDATE THE CONFIGMAP ===
+$ kubectl patch configmap yatri-app-config -p '{"data":{"LOG_LEVEL":"DEBUG","DEFAULT_CURRENCY":"USD"}}'
+configmap/yatri-app-config patched
+
+$ kubectl get configmap yatri-app-config -o jsonpath='{.data.LOG_LEVEL}{"  "}{.data.DEFAULT_CURRENCY}{"\n"}'
+DEBUG  USD
+>> The ConfigMap object is updated immediately.
+
+=== 3. BUT THE RUNNING PODS HAVE NOT CHANGED ===
+waiting 20s to rule out a simple propagation delay...
+$ curl -s -H 'Host: yatri.local' http://localhost/api/ | grep -E 'LOG_LEVEL|CURRENCY'
+LOG_LEVEL       : INFO
+DEFAULT_CURRENCY: INR
+
+
+$ kubectl exec yatri-backend-6f88d58465-4mlpk -- env | grep -E 'LOG_LEVEL|DEFAULT_CURRENCY' | sort
+DEFAULT_CURRENCY=INR
+LOG_LEVEL=INFO
+
+  >> STILL INFO and INR.
+  >>
+  >> Environment variables are injected ONCE, when the container starts. The
+  >> kernel gives a process its environment at exec() time and there is no
+  >> mechanism to change it afterwards. Kubernetes cannot update them, and this
+  >> is not a bug - it is how processes work.
+
+=== 4. A VOLUME-MOUNTED CONFIGMAP *DOES* UPDATE LIVE ===
+
+$ kubectl exec yatri-frontend-77b487969f-n48mq -- grep -c 'Hello from the' /usr/share/nginx/html/index.html
+1
+$ kubectl patch configmap yatri-frontend-html --type merge -p '<new index.html>'
+patched. polling the file inside the RUNNING pod (no restart):
+  updated after ~75s without any restart
+
+$ kubectl exec yatri-frontend-77b487969f-n48mq -- cat /usr/share/nginx/html/index.html
+<!doctype html>
+<html><head><title>Yatri — UPDATED LIVE</title></head>
+<body><h1>This HTML was changed while the pod kept running</h1></body></html>
+
+$ kubectl get pods -l app=yatri-frontend
+NAME                              READY   STATUS    RESTARTS   AGE
+yatri-frontend-77b487969f-n48mq   1/1     Running   0          7m43s
+yatri-frontend-77b487969f-zz6h4   1/1     Running   0          7m43s
+>> RESTARTS is still 0 - the file changed underneath a running pod.
+
+  WHY THE DIFFERENCE:
+    env vars  - copied into the process at exec(). Immutable thereafter.
+    volumes   - the kubelet mounts a projected directory and REFRESHES it,
+                by default within about a minute (kubelet sync period + cache
+                TTL). The app must re-read the file to notice.
+
+  This is the main practical argument for mounting config as files when the
+  app supports reloading them.
+
+=== 5. MAKING THE ENV-VAR CHANGE TAKE EFFECT  [checklist 10] ===
+$ kubectl rollout restart deployment/yatri-backend
+deployment.apps/yatri-backend restarted
+Waiting for deployment "yatri-backend" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "yatri-backend" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "yatri-backend" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "yatri-backend" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "yatri-backend" rollout to finish: 1 old replicas are pending termination...
+deployment "yatri-backend" successfully rolled out
+waiting for the old pods to finish terminating............................ - done after 29s
+
+$ kubectl get pods -l app=yatri-backend
+NAME                             READY   STATUS    RESTARTS   AGE
+yatri-backend-7bffcdfc8f-8txsn   1/1     Running   0          31s
+yatri-backend-7bffcdfc8f-dpcw9   1/1     Running   0          31s
+>> New pods, new AGE - the containers were recreated, so exec() ran again.
+
+$ curl -s -H 'Host: yatri.local' http://localhost/api/ | grep -E 'LOG_LEVEL|CURRENCY'
+LOG_LEVEL       : DEBUG
+DEFAULT_CURRENCY: USD
+>> DEBUG and USD  [checklist 10]. The new values are live.
+
+  `kubectl rollout restart` does a normal ROLLING restart, so there is no
+  downtime - the same maxUnavailable/maxSurge rules from module 09 apply.
+
+  PRODUCTION PATTERN: put a hash of the ConfigMap in the pod template's
+  annotations. Changing the ConfigMap changes the hash, which changes the pod
+  template, which makes the Deployment roll automatically. Helm does this with:
+
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/cm.yaml") . | sha256sum }}
+
+=== 6. IMMUTABLE CONFIGMAPS ===
+  Setting `immutable: true` on a ConfigMap or Secret:
+    - prevents accidental edits
+    - and materially improves cluster performance, because the kubelet stops
+      watching it for changes (a large cluster watching thousands of mutable
+      ConfigMaps puts real load on the API server)
+  To change an immutable object you delete and recreate it.
+
+=== 7. RESTORE THE ORIGINAL VALUES ===
+restored LOG_LEVEL=INFO, DEFAULT_CURRENCY=INR
+
+$ kubectl get configmap yatri-app-config -o jsonpath='{.data.LOG_LEVEL}{"  "}{.data.DEFAULT_CURRENCY}{"\n"}'
+INFO  INR
