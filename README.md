@@ -9,9 +9,10 @@
 
 ## 1. Overview
 
-This repository contains the complete submission for all seven modules of the DevOps
+This repository contains the complete submission for all eleven modules of the DevOps
 homework: Linux Fundamentals, Shell Scripting, Networking Fundamentals, Git/GitHub, Docker
-Fundamentals, Dockerfiles & Images, and Docker Networking.
+Fundamentals, Dockerfiles & Images, Docker Networking, and the four Kubernetes sessions —
+Fundamentals, Pods/ReplicaSets/Deployments, Networking & Services, and Ingress/ConfigMaps/Secrets.
 
 Every command documented here was executed, and its output captured to a log file before
 being rendered as a screenshot. No output has been transcribed from documentation or
@@ -23,12 +24,13 @@ in the corresponding `scripts/` directory.
 
 | Artefact | Count |
 |---|---|
-| Modules | 7 |
-| Screenshots | 113 |
-| Captured output logs | 19 files, 3,250+ lines |
-| Executable scripts | 20 |
+| Modules | 11 |
+| Screenshots | 185 |
+| Captured output logs | 29 files, 5,790+ lines |
+| Executable scripts | 29 |
 | Dockerfiles | 11 |
-| Applications built and verified | 8 |
+| Kubernetes manifests | 38 |
+| Applications built and verified | 10 |
 
 ---
 
@@ -159,6 +161,80 @@ is measured rather than asserted.
 | 4 | Understand how they work across multiple hosts | VXLAN encapsulation, control plane, required ports | ✔ |
 | — | Screenshots added to the README | 17 screenshots | ✔ |
 
+### 2.8 Kubernetes Fundamentals → [`08-kubernetes-fundamentals/`](08-kubernetes-fundamentals/)
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1 | Understand why Kubernetes exists | Compared against Docker alone, problem by problem | ✔ |
+| 2 | Cluster architecture | Control plane and node components inspected as running objects | ✔ |
+| 3 | Build a cluster | Real 3-node cluster (1 control-plane + 2 workers), v1.37.0, via kind | ✔ |
+| 4 | Nodes, namespaces, core objects | Labels, the control-plane taint, node conditions, all namespaces | ✔ |
+| 5 | `kubectl` essentials | `get`/`describe`/`logs`/`exec`/`apply`/`explain`/`port-forward` | ✔ |
+| 6 | Declarative vs imperative | Both shown; `apply` idempotency reporting `unchanged` | ✔ |
+| 7 | The reconciliation loop | Demonstrated by deleting a bare Pod and showing nothing restores it | ✔ |
+
+Extras beyond the reading list: the kubelet proven to run as a host systemd service rather
+than a pod, and static pods identified by their `ownerReferences` being `Node`.
+
+### 2.9 Kubernetes Pods, ReplicaSets & Deployments → [`09-k8s-pods-replicasets-deployments/`](09-k8s-pods-replicasets-deployments/)
+
+Mirrors the reference `pod-lifecycle` lab (12 numbered states) and the four
+`deployment-strategies` folders.
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1–6 | Pod lifecycle: Running, Pending, Succeeded, Failed, CrashLoopBackOff, ImagePullBackOff | Each forced deliberately with its own manifest | ✔ |
+| 7–9 | Readiness, liveness and startup probes | All three, plus a failing liveness and a failing readiness | ✔ |
+| 10 | Init containers | Ordered, caught mid-`Init:1/2` | ✔ |
+| 11 | Multi-container pods | Sidecar sharing a volume and the network namespace | ✔ |
+| 12 | Graceful termination | `preStop` + SIGTERM trap captured in the pod's own logs | ✔ |
+| — | ReplicaSets | Self-healing, and label-selector ownership proven by orphaning a pod | ✔ |
+| — | Deployments | Deployment → ReplicaSet → Pod chain via `ownerReferences` | ✔ |
+| — | Rollouts | Rolling update, `history`, `undo`, and a stalled broken rollout | ✔ |
+| — | Rolling update strategy | `maxUnavailable`/`maxSurge` behaviour measured | ✔ |
+| — | Recreate strategy | Downtime window sampled once per second | ✔ |
+| — | Blue-green | Service-selector cutover, 5/5 BLUE then 5/5 GREEN | ✔ |
+| — | Canary | 15/5 split over 20 requests, then promotion | ✔ |
+| — | DaemonSet & StatefulSet | One pod per node; ordinal identity proven across a delete | ✔ |
+| — | Troubleshooting | Selector mismatch and a broken image tag | ✔ |
+
+### 2.10 Kubernetes Networking & Services → [`10-k8s-networking-services/`](10-k8s-networking-services/)
+
+Mirrors the reference `01-clusterip` … `05-headless` folders plus `service.md` and `fqdn.md`.
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1 | Why Services exist | Pod IP shown changing after a delete | ✔ |
+| 2 | The four ports | `nodePort`/`port`/`targetPort`/`containerPort` — demonstrated, not just tabulated | ✔ |
+| 3 | ClusterIP | Applied, load-balanced, unreachable from outside | ✔ |
+| 4 | NodePort | Reached from the macOS host on :30080 | ✔ |
+| 5 | LoadBalancer | `<pending>` on a local cluster, with the reason explained | ✔ |
+| 6 | ExternalName | CNAME alias, no ClusterIP, no endpoints | ✔ |
+| 7 | Headless | Pod IPs via DNS; stable per-pod names with a StatefulSet | ✔ |
+| 8 | CoreDNS and FQDN | `resolv.conf`, `search`/`ndots`, all four name forms, cross-namespace | ✔ |
+| 9 | Endpoints / EndpointSlice | Shown as the link between Service and pods | ✔ |
+| 10 | kube-proxy | Actual iptables DNAT rules dumped from a node | ✔ |
+| 11 | Troubleshooting | The empty-endpoints drill, diagnosed and fixed | ✔ |
+| 12 | Services without selectors | Hand-written `EndpointSlice` | ✔ |
+
+### 2.11 Kubernetes Ingress, ConfigMaps & Secrets → [`11-k8s-ingress-configmaps-secrets/`](11-k8s-ingress-configmaps-secrets/)
+
+Follows the session-12 **Lab Completion Checklist** item for item.
+
+| # | Checklist item | Status |
+|---|---|---|
+| 1 | Applied `configmap.yaml`, read a key with `-o jsonpath` | ✔ |
+| 2 | Applied `secret.yaml`, decoded `POSTGRES_PASSWORD` with `base64 --decode` | ✔ |
+| 3 | Applied `backend.yaml`, verified env vars in-pod with `kubectl exec` | ✔ |
+| 4 | Applied `frontend.yaml`, both services confirmed `ClusterIP` | ✔ |
+| 5 | Enabled the NGINX Ingress Controller, pod `Running` | ✔ |
+| 6 | Applied `ingress.yaml`, `ADDRESS` appeared | ✔ |
+| 7 | Path `/` returns the frontend HTML via `curl -H "Host: yatri.local"` | ✔ |
+| 8 | Path `/api/` returns the backend config values | ✔ |
+| 9 | Demonstrated the `echo` vs `echo -n` newline bug | ✔ |
+| 10 | Rolling restart after a ConfigMap update loads the new value | ✔ |
+| — | Host-based routing and TLS termination (from `03-ingress`) | ✔ |
+
 ---
 
 ## 3. Test environment
@@ -171,6 +247,9 @@ is measured rather than asserted.
 | Node.js | 22.21.1 |
 | Python | 3.14.5 |
 | Java | OpenJDK 26.0.1 |
+| Kubernetes | v1.37.0 (cluster) / kubectl v1.34.1 |
+| kind | v0.33.0 |
+| ingress-nginx | controller v1.11.3 |
 
 Because the host is macOS and the majority of the assignment concerns Linux, all
 Linux-specific commands were executed inside genuine Linux environments rather than
@@ -183,6 +262,7 @@ substituting macOS equivalents:
 | GNU networking tools (`ip`, `ss`, `dig`, `tcpdump`, `nmap`) | Custom `net-lab` image ([`Dockerfile`](03-networking/lab/Dockerfile)) | macOS ships BSD variants with different flags |
 | Default gateway, ARP cache, internet traceroute | macOS host | These are only meaningful on a machine attached to a real network |
 | Overlay networking | Docker Swarm (single node) | Overlay networks require swarm mode |
+| Kubernetes (modules 08–11) | 3-node **kind** cluster ([`kind-config.yaml`](08-kubernetes-fundamentals/cluster/kind-config.yaml)) | Each node is a container running a real kubelet and containerd, so the control-plane/worker split is genuine rather than simulated |
 
 ---
 
@@ -220,8 +300,32 @@ docker run --rm --cap-add=NET_ADMIN --cap-add=NET_RAW \
 ./07-docker-network-volumes/scripts/task3-bind-mount.sh
 ./07-docker-network-volumes/scripts/task4-overlay.sh
 
-# Tear down all demo containers, networks and images
-./cleanup.sh
+# ---- Kubernetes (modules 08-11) ----
+# One cluster serves all four modules.
+kind create cluster --config 08-kubernetes-fundamentals/cluster/kind-config.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/kind/deploy.yaml
+
+# Module 08 - Kubernetes Fundamentals
+./08-kubernetes-fundamentals/scripts/01-architecture.sh
+./08-kubernetes-fundamentals/scripts/02-kubectl-and-objects.sh
+
+# Module 09 - Pods, ReplicaSets and Deployments
+./09-k8s-pods-replicasets-deployments/scripts/01-pods-lifecycle.sh
+./09-k8s-pods-replicasets-deployments/scripts/02-replicaset-deployment.sh
+./09-k8s-pods-replicasets-deployments/scripts/03-strategies-workloads.sh
+
+# Module 10 - Networking and Services
+./10-k8s-networking-services/scripts/01-services.sh
+./10-k8s-networking-services/scripts/02-dns-and-troubleshooting.sh
+
+# Module 11 - Ingress, ConfigMaps and Secrets
+./11-k8s-ingress-configmaps-secrets/scripts/01-configmaps-secrets.sh
+./11-k8s-ingress-configmaps-secrets/scripts/02-ingress.sh
+./11-k8s-ingress-configmaps-secrets/scripts/03-config-updates.sh
+
+# Tear down
+kind delete cluster --name devops-hw     # the Kubernetes cluster
+./cleanup.sh                             # all Docker demo containers and images
 ```
 
 Demo containers are intentionally left running after each module so the applications can be
@@ -237,6 +341,8 @@ opened in a browser.
 | 8081 | Module 07 — frontend container |
 | 8083 | Module 07 — bind-mount demonstration |
 | 8085 | Module 07 — swarm service (overlay network) |
+| 30080 | Module 10 — NodePort Service, published to the host by kind |
+| 80 / 443 | Module 11 — the Ingress controller, published to the host by kind |
 
 ---
 
@@ -249,6 +355,12 @@ opened in a browser.
 | Network segmentation enforced at the DNS layer — `frontend` cannot resolve `database`, because Docker's embedded DNS only answers for containers sharing a network | 07 | [Task 1](07-docker-network-volumes/#task-1--docker-container-networking) |
 | A functioning overlay network with VIP service discovery, `tasks.<service>` round-robin resolution, load balancing and the routing mesh | 07 | [Task 4](07-docker-network-volumes/#task-4--overlay-networks) |
 | Bind-mount live update confirmed by identical container `StartedAt` timestamps before and after the edit | 07 | [Task 3](07-docker-network-volumes/#task-3--bind-mount) |
+| The kubelet shown running as a host systemd service, and static pods identified by their `ownerReferences` being `Node` — the bootstrap problem made concrete | 08 | [Architecture](08-kubernetes-fundamentals/#3-cluster-architecture) |
+| A broken rollout stalls at exactly `replicas − maxUnavailable` healthy pods instead of taking the service down | 09 | [Failed rollout](09-k8s-pods-replicasets-deployments/#a-failed-rollout-does-not-take-the-service-down) |
+| StatefulSet identity proven by deleting `web-1` and finding the same name **and the same data** on its own PVC | 09 | [StatefulSet](09-k8s-pods-replicasets-deployments/#statefulset--identity-and-per-pod-storage) |
+| A ClusterIP shown to be virtual — it belongs to no interface and exists only as iptables DNAT rules, dumped from a node | 10 | [kube-proxy](10-k8s-networking-services/#9-how-traffic-actually-flows--kube-proxy) |
+| Base64 shown not to be encryption by decoding a password straight out of a Secret, and the `echo` newline bug caught with `od -c` | 11 | [Secrets](11-k8s-ingress-configmaps-secrets/#3-secrets--checklist-2) |
+| Env vars proven never to update in a running pod while volume-mounted ConfigMaps refresh live after ~45s | 11 | [Config changes](11-k8s-ingress-configmaps-secrets/#12-what-happens-when-config-changes) |
 
 ---
 
@@ -300,11 +412,23 @@ Issues encountered during preparation, retained here as part of the engineering 
 | MySQL query failed with `caching_sha2_password could not be loaded` | Alpine's `mysql` binary is the MariaDB client, which lacks that plugin | Started MySQL with `mysql_native_password`; added `--skip-ssl` for its self-signed certificate |
 | Bind-mounted page served truncated content | A live bind mount has no copy step, so a request can read a file mid-write | Allowed the write to settle before requesting |
 | Compose verification reported HTTP 000 for the Python service | The request preceded Flask completing its bind | Poll for readiness rather than assuming it |
+| NodePort curl returned nothing immediately after `kubectl apply` | `kube-proxy` had not yet programmed the iptables rules for the new Service | Poll the port until it answers before asserting success |
+| A `kubectl rollout restart` appeared not to pick up the new ConfigMap value | `rollout status` returns while old pods are still `Terminating`, and a terminating pod can still be in Service endpoints | Wait for every old pod to disappear before testing |
+| `nslookup` reported `NXDOMAIN` for Service short names that plainly worked | busybox's `nslookup` applet does not walk the `resolv.conf` `search` list | Prove resolution by connecting, which uses `getaddrinfo()` |
+| A liveness probe restarted a container that was perfectly healthy | The probe pointed at a path returning 404 | Kept deliberately — it is the clearest demonstration of why liveness probes should be generous and readiness probes strict |
 
-Two documented claims were also corrected against the captured output: the container MTU
-is 65535 (a virtual `veth` interface, not the 1500 of physical Ethernet), and image size
-has two distinct measures — unpacked on disk versus compressed content — which differ under
-Docker Desktop's containerd image store. Both measures are reported where relevant.
+Several documented claims were also corrected against the captured output rather than left
+to stand: the container MTU is 65535 (a virtual `veth` interface, not the 1500 of physical
+Ethernet); image size has two distinct measures — unpacked on disk versus compressed content —
+which differ under Docker Desktop's containerd image store; and a narration stating that
+"4 old pods" survived a failed rollout was replaced with a computed value, because the real
+figure is 3 (`replicas − maxUnavailable`).
+
+Two further limitations are recorded in place rather than hidden: a `LoadBalancer` Service
+stays `<pending>` on a local cluster because there is no cloud-controller-manager
+([module 10](10-k8s-networking-services/#5-loadbalancer--needs-a-cloud-provider)), and the two
+frontend pods in module 11 refreshed a volume-mounted ConfigMap about 25 seconds apart — so
+replicas are briefly inconsistent with each other during a config change.
 
 ---
 
@@ -320,7 +444,11 @@ devops-scaler/
 ├── 04-git-github/
 ├── 05-docker-fundamentals/
 ├── 06-dockerfiles-and-images/
-└── 07-docker-network-volumes/
+├── 07-docker-network-volumes/
+├── 08-kubernetes-fundamentals/
+├── 09-k8s-pods-replicasets-deployments/
+├── 10-k8s-networking-services/
+└── 11-k8s-ingress-configmaps-secrets/
 ```
 
 Each module directory follows the same layout:
@@ -332,3 +460,4 @@ Each module directory follows the same layout:
 | `outputs/` | Raw captured `.txt` logs, committed so screenshots can be verified against source |
 | `screenshots/` | The PNG files embedded in the module README |
 | `lab/` | Supporting Dockerfiles, where a purpose-built environment was required |
+| `manifests/` | Kubernetes YAML applied to the cluster (modules 08–11) |
