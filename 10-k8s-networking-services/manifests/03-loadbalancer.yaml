@@ -1,0 +1,16 @@
+# LoadBalancer — asks the CLOUD PROVIDER for an external load balancer.
+# On a local cluster with no cloud-controller-manager, EXTERNAL-IP stays
+# <pending> forever. That is expected, not a failure — see the README.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-loadbalancer
+spec:
+  type: LoadBalancer
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP

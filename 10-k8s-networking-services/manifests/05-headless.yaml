@@ -1,0 +1,47 @@
+# Headless Service (clusterIP: None) — no virtual IP, no load balancing.
+# DNS returns the individual POD IPs instead, which is what StatefulSets need.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-headless
+spec:
+  clusterIP: None          # <-- this is what makes it headless
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# A StatefulSet, so each pod also gets its own STABLE DNS name:
+#   sts-0.sts-headless.default.svc.cluster.local
+apiVersion: v1
+kind: Service
+metadata:
+  name: sts-headless
+spec:
+  clusterIP: None
+  selector: { app: sts-demo }
+  ports: [{ port: 80, name: http }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sts
+spec:
+  serviceName: sts-headless
+  replicas: 3
+  selector: { matchLabels: { app: sts-demo } }
+  template:
+    metadata: { labels: { app: sts-demo } }
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          command: ["sh","-c","echo \"this is $POD_NAME\" > /usr/share/nginx/html/index.html && nginx -g 'daemon off;'"]
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          ports: [{ containerPort: 80, name: http }]
+          resources: { requests: { cpu: "20m", memory: "24Mi" } }

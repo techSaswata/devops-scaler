@@ -1,0 +1,9 @@
+# ExternalName — a CNAME alias to a host OUTSIDE the cluster.
+# No selector, no endpoints, no proxying: CoreDNS simply returns a CNAME.
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-db
+spec:
+  type: ExternalName
+  externalName: example.com    # the real hostname to alias

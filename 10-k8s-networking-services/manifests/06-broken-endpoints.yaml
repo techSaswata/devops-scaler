@@ -1,0 +1,17 @@
+# BROKEN ON PURPOSE — the endpoint triage drill.
+# The pods are labelled app=backend, but this selector looks for
+# app=wrong-backend-name. The Service is created successfully and gets a
+# ClusterIP, but it has ZERO endpoints, so every request fails to connect.
+apiVersion: v1
+kind: Service
+metadata:
+  name: broken-backend-service
+spec:
+  type: ClusterIP
+  selector:
+    app: wrong-backend-name     # BUG: no pod carries this label
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP

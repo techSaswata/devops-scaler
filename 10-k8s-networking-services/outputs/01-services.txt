@@ -1,0 +1,298 @@
+
+=== 0. THE BACKEND EVERY SERVICE POINTS AT ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/10-k8s-networking-services/manifests/00-backend.yaml
+deployment.apps/backend created
+Waiting for deployment "backend" rollout to finish: 0 of 3 updated replicas are available...
+Waiting for deployment "backend" rollout to finish: 1 of 3 updated replicas are available...
+Waiting for deployment "backend" rollout to finish: 2 of 3 updated replicas are available...
+deployment "backend" successfully rolled out
+
+$ kubectl get pods -l app=backend -o wide
+NAME                       READY   STATUS    RESTARTS   AGE   IP             NODE                NOMINATED NODE   READINESS GATES
+backend-756d8ffd68-bggfz   1/1     Running   0          1s    10.244.2.108   devops-hw-worker2   <none>           <none>
+backend-756d8ffd68-h29fq   1/1     Running   0          1s    10.244.1.86    devops-hw-worker    <none>           <none>
+backend-756d8ffd68-x4vsr   1/1     Running   0          1s    10.244.1.87    devops-hw-worker    <none>           <none>
+>> Each pod serves its OWN name, so load balancing is visible.
+
+>> A pod IP is EPHEMERAL - this is the problem Services exist to solve:
+
+$ kubectl get pods -l app=backend -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.status.podIP}{"\n"}{end}'
+backend-756d8ffd68-bggfz  10.244.2.108
+backend-756d8ffd68-h29fq  10.244.1.86
+backend-756d8ffd68-x4vsr  10.244.1.87
+
+deleted backend-756d8ffd68-bggfz (was 10.244.2.108); after the controller replaced it:
+
+$ kubectl get pods -l app=backend -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.status.podIP}{"\n"}{end}'
+backend-756d8ffd68-h29fq  10.244.1.86
+backend-756d8ffd68-ttqx5  10.244.2.109
+backend-756d8ffd68-x4vsr  10.244.1.87
+>> New name, NEW IP. Hard-coding pod IPs is therefore never viable.
+
+=== 1. CLUSTERIP — the default, internal only ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/10-k8s-networking-services/manifests/01-clusterip.yaml
+service/backend-clusterip created
+
+$ kubectl get svc backend-clusterip
+NAME                TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+backend-clusterip   ClusterIP   10.96.133.182   <none>        80/TCP    0s
+
+$ kubectl describe svc backend-clusterip | head -14
+Name:                     backend-clusterip
+Namespace:                default
+Labels:                   <none>
+Annotations:              <none>
+Selector:                 app=backend
+Type:                     ClusterIP
+IP Family Policy:         SingleStack
+IP Families:              IPv4
+IP:                       10.96.133.182
+IPs:                      10.96.133.182
+Port:                     http  80/TCP
+TargetPort:               80/TCP
+Endpoints:                10.244.1.87:80,10.244.1.86:80,10.244.2.109:80
+Session Affinity:         None
+
+--- the ClusterIP is VIRTUAL: nothing owns it, no interface has it ---
+ClusterIP = 10.96.133.182
+
+$ wget backend-clusterip  x6   (load balanced across the 3 pods)
+  request 1: served by backend-756d8ffd68-ttqx5
+  request 2: served by backend-756d8ffd68-ttqx5
+  request 3: served by backend-756d8ffd68-h29fq
+  request 4: served by backend-756d8ffd68-h29fq
+  request 5: served by backend-756d8ffd68-h29fq
+  request 6: served by backend-756d8ffd68-x4vsr
+
+--- by NAME, by FQDN, and by IP - all equivalent ---
+
+$ kubectl exec net-client -- wget -qO- --timeout=3 http://backend-clusterip
+served by backend-756d8ffd68-h29fq
+
+$ kubectl exec net-client -- wget -qO- --timeout=3 http://backend-clusterip.default.svc.cluster.local
+served by backend-756d8ffd68-ttqx5
+
+$ kubectl exec net-client -- wget -qO- --timeout=3 http://10.96.133.182
+served by backend-756d8ffd68-h29fq
+
+--- ENDPOINTS: how the Service finds its pods ---
+
+$ kubectl get endpoints backend-clusterip
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME                ENDPOINTS                                       AGE
+backend-clusterip   10.244.1.86:80,10.244.1.87:80,10.244.2.109:80   2s
+
+$ kubectl get endpointslice -l kubernetes.io/service-name=backend-clusterip
+NAME                      ADDRESSTYPE   PORTS   ENDPOINTS                              AGE
+backend-clusterip-r4ggn   IPv4          80      10.244.1.87,10.244.1.86,10.244.2.109   2s
+>> The Service does not know about pods directly. The endpoints controller
+>> watches for pods matching the selector that are READY, and maintains
+>> this list. kube-proxy then programs it into iptables.
+
+--- NOT reachable from outside the cluster ---
+$ curl --max-time 3 http://10.96.133.182  (from the macOS host)
+HTTP 000
+no route - as expected
+>> ClusterIP is cluster-internal by definition. That is the point.
+
+=== 2. NODEPORT — reachable from outside, on every node ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/10-k8s-networking-services/manifests/02-nodeport.yaml
+service/backend-nodeport created
+
+$ kubectl get svc backend-nodeport
+NAME               TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE
+backend-nodeport   NodePort   10.96.178.52   <none>        80:30080/TCP   0s
+>> NodePort ALSO gets a ClusterIP. NodePort is a superset of ClusterIP.
+
+--- the same port is opened on EVERY node ---
+
+$ kubectl get nodes -o wide --no-headers | awk '{print $1, $6}'
+devops-hw-control-plane 172.19.0.4
+devops-hw-worker 172.19.0.3
+devops-hw-worker2 172.19.0.2
+
+waiting for kube-proxy to program the nodePort. - ready after 2s
+
+$ curl http://localhost:30080/  (host port 30080 -> control-plane node:30080)
+  request 1: served by backend-756d8ffd68-x4vsr [HTTP 200]
+  request 2: served by backend-756d8ffd68-x4vsr [HTTP 200]
+  request 3: served by backend-756d8ffd68-ttqx5 [HTTP 200]
+  request 4: served by backend-756d8ffd68-x4vsr [HTTP 200]
+>> Reached from the macOS host, load balanced across all 3 pods.
+>> kind maps host:30080 to the control-plane container's port 30080.
+
+--- hitting a node that runs NO backend pod still works ---
+
+$ kubectl get pods -l app=backend -o custom-columns=POD:.metadata.name,NODE:.spec.nodeName --no-headers
+backend-756d8ffd68-h29fq   devops-hw-worker
+backend-756d8ffd68-ttqx5   devops-hw-worker2
+backend-756d8ffd68-x4vsr   devops-hw-worker
+>> Any node accepts traffic on the nodePort and forwards it to a pod,
+>> wherever that pod lives. kube-proxy does the redirection.
+
+--- the 4 ports, on one object ---
+
+$ kubectl get svc backend-nodeport -o jsonpath='port={.spec.ports[0].port}  targetPort={.spec.ports[0].targetPort}  nodePort={.spec.ports[0].nodePort}{"\n"}'
+port=80  targetPort=80  nodePort=30080
+
+$ kubectl get deployment backend -o jsonpath='containerPort={.spec.template.spec.containers[0].ports[0].containerPort}{"\n"}'
+containerPort=8080
+
+  nodePort      30080  the port on every NODE            <- external clients
+  port          80     the port on the SERVICE           <- other pods
+  targetPort    80     the port on the POD               <- where traffic lands
+  containerPort 8080   declared in the Deployment        <- DOCUMENTATION ONLY
+
+  Note containerPort says 8080 while nginx really listens on 80, and everything
+  still works. containerPort is purely informational; ONLY targetPort decides
+  where traffic is sent. This is a deliberate demonstration of a field that
+  people routinely believe is load-bearing.
+
+=== 3. LOADBALANCER — needs a cloud provider ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/10-k8s-networking-services/manifests/03-loadbalancer.yaml
+service/backend-loadbalancer created
+
+$ kubectl get svc backend-loadbalancer
+NAME                   TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE
+backend-loadbalancer   LoadBalancer   10.96.79.150   <pending>     80:32180/TCP   8s
+
+>> EXTERNAL-IP is <pending>, and it will stay that way. This is EXPECTED:
+>> a LoadBalancer Service asks the cloud-controller-manager to provision a
+>> real load balancer (an AWS ELB, a GCP forwarding rule). A local kind
+>> cluster has no cloud provider, so nobody answers the request.
+
+--- but it still allocated a NodePort, so it IS reachable ---
+
+$ kubectl get svc backend-loadbalancer -o jsonpath='type={.spec.type}  nodePort={.spec.ports[0].nodePort}  clusterIP={.spec.clusterIP}{"\n"}'
+type=LoadBalancer  nodePort=32180  clusterIP=10.96.79.150
+>> LoadBalancer is a superset of NodePort, which is a superset of ClusterIP.
+>> Each type builds on the one before it:
+>>    ClusterIP  ->  + nodePort  =  NodePort  ->  + cloud LB  =  LoadBalancer
+
+$ kubectl exec net-client -- wget -qO- --timeout=3 http://backend-loadbalancer
+served by backend-756d8ffd68-x4vsr
+>> Still works internally via its ClusterIP.
+
+=== 4. EXTERNALNAME — a CNAME to something outside the cluster ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/10-k8s-networking-services/manifests/04-externalname.yaml
+service/external-db created
+
+$ kubectl get svc external-db
+NAME          TYPE           CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+external-db   ExternalName   <none>       example.com   <none>    1s
+>> No CLUSTER-IP, no selector, no endpoints - it is pure DNS.
+
+$ kubectl get endpoints external-db 2>&1 | head -3
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+Error from server (NotFound): endpoints "external-db" not found
+
+--- CoreDNS returns a CNAME, not an A record for a cluster IP ---
+
+$ kubectl exec net-client -- nslookup external-db.default.svc.cluster.local 2>&1 | head -12
+Server:		10.96.0.10
+Address:	10.96.0.10:53
+
+external-db.default.svc.cluster.local	canonical name = example.com
+Name:	example.com
+Address: 2606:4700:10::ac42:93f3
+Name:	example.com
+Address: 2606:4700:10::6814:179a
+
+external-db.default.svc.cluster.local	canonical name = example.com
+Name:	example.com
+Address: 172.66.147.243
+
+>> Used to give in-cluster workloads a STABLE INTERNAL NAME for an
+>> external dependency (a managed RDS instance, a third-party API).
+>> Switch environments by changing externalName - the app never changes.
+
+>> CAVEAT: it is DNS only. No proxying, no port remapping, no TLS handling.
+>> If the client sends an SNI/Host header, it sends the EXTERNAL name.
+
+=== 5. HEADLESS SERVICE — no virtual IP, direct pod DNS ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/10-k8s-networking-services/manifests/05-headless.yaml
+service/backend-headless created
+service/sts-headless created
+statefulset.apps/sts created
+Waiting for 3 pods to be ready...
+Waiting for 2 pods to be ready...
+Waiting for 2 pods to be ready...
+Waiting for 1 pods to be ready...
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 3 new pods have been updated...
+
+$ kubectl get svc backend-headless sts-headless
+NAME               TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+backend-headless   ClusterIP   None         <none>        80/TCP    1s
+sts-headless       ClusterIP   None         <none>        80/TCP    1s
+>> CLUSTER-IP is None. There is no virtual IP and no load balancing.
+
+--- a NORMAL service resolves to ONE virtual IP ---
+
+$ kubectl exec net-client -- nslookup backend-clusterip.default.svc.cluster.local 2>&1 | grep -A1 '^Name:'
+Name:	backend-clusterip.default.svc.cluster.local
+Address: 10.96.133.182
+
+$ kubectl get svc backend-clusterip -o jsonpath='the service ClusterIP is {.spec.clusterIP}{"\n"}'
+the service ClusterIP is 10.96.133.182
+>> One name, one virtual IP. The client never learns the pod addresses.
+
+--- a HEADLESS service resolves to ALL the POD IPs ---
+
+$ kubectl exec net-client -- nslookup backend-headless.default.svc.cluster.local 2>&1 | grep -A1 '^Name:'
+Name:	backend-headless.default.svc.cluster.local
+Address: 10.244.1.87
+Name:	backend-headless.default.svc.cluster.local
+Address: 10.244.2.109
+Name:	backend-headless.default.svc.cluster.local
+Address: 10.244.1.86
+
+$ kubectl get pods -l app=backend -o jsonpath='{range .items[*]}{.status.podIP}{"\n"}{end}'
+10.244.1.86
+10.244.2.109
+10.244.1.87
+>> Same addresses. The client now sees every pod and chooses for itself.
+
+--- with a StatefulSet, each pod gets a STABLE DNS NAME ---
+
+$ kubectl get pods -l app=sts-demo -o wide
+NAME    READY   STATUS    RESTARTS   AGE   IP             NODE                NOMINATED NODE   READINESS GATES
+sts-0   1/1     Running   0          2s    10.244.2.110   devops-hw-worker2   <none>           <none>
+sts-1   1/1     Running   0          2s    10.244.1.89    devops-hw-worker    <none>           <none>
+sts-2   1/1     Running   0          1s    10.244.2.111   devops-hw-worker2   <none>           <none>
+$ wget http://sts-0.sts-headless.default.svc.cluster.local
+  this is sts-0
+$ wget http://sts-1.sts-headless.default.svc.cluster.local
+  this is sts-1
+$ wget http://sts-2.sts-headless.default.svc.cluster.local
+  this is sts-2
+>> sts-0, sts-1, sts-2 are individually addressable and STABLE.
+>> This is exactly what clustered databases need: replicas must be able to
+>> reach a SPECIFIC peer, not 'any one of them'.
+
+=== 6. SUMMARY OF ALL FIVE ===
+
+$ kubectl get svc
+NAME                   TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+backend-clusterip      ClusterIP      10.96.133.182   <none>        80/TCP         20s
+backend-headless       ClusterIP      None            <none>        80/TCP         2s
+backend-loadbalancer   LoadBalancer   10.96.79.150    <pending>     80:32180/TCP   13s
+backend-nodeport       NodePort       10.96.178.52    <none>        80:30080/TCP   14s
+external-db            ExternalName   <none>          example.com   <none>         5s
+kubernetes             ClusterIP      10.96.0.1       <none>        443/TCP        18s
+sts-headless           ClusterIP      None            <none>        80/TCP         2s
+
+  TYPE           CLUSTER-IP   EXTERNAL ACCESS        TYPICAL USE
+  ------------   ----------   --------------------   ----------------------------
+  ClusterIP      virtual IP   no                     internal microservices (default)
+  NodePort       virtual IP   <anyNodeIP>:30000+     dev/test, or behind an external LB
+  LoadBalancer   virtual IP   cloud LB public IP     production public entry (cloud only)
+  ExternalName   none         n/a (CNAME out)        alias an external host
+  Headless       None         no                     StatefulSets, client-side LB, peer discovery
+

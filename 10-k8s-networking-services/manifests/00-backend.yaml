@@ -1,0 +1,28 @@
+# The backend that every Service type in this module points at.
+# Each pod serves its OWN name, so you can see load balancing actually happening.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels: { app: backend }
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: backend }
+  template:
+    metadata:
+      labels: { app: backend }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          # Write the pod name into index.html at startup, using the downward API.
+          command: ["sh","-c","echo \"served by $POD_NAME\" > /usr/share/nginx/html/index.html && nginx -g 'daemon off;'"]
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          ports:
+            - containerPort: 8080   # NOTE: informational only. nginx really listens on 80.
+              name: http
+          resources:
+            requests: { cpu: "20m", memory: "24Mi" }

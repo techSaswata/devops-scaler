@@ -1,0 +1,14 @@
+# ClusterIP — the DEFAULT type. Reachable only from inside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-clusterip
+spec:
+  type: ClusterIP           # can be omitted; this is the default
+  selector:
+    app: backend            # finds pods by LABEL, not by name
+  ports:
+    - name: http
+      port: 80              # the port the SERVICE listens on
+      targetPort: 80        # the port on the POD to forward to
+      protocol: TCP

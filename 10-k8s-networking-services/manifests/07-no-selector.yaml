@@ -1,0 +1,29 @@
+# A Service with NO selector, plus a manually-managed EndpointSlice.
+# This is how you put a Service in front of something Kubernetes does not
+# manage — an external database, a legacy VM, or a service in another cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: manual-endpoints
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+  # NOTE: no selector. Kubernetes will not populate endpoints for us,
+  # so we supply them by hand below.
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: manual-endpoints-1
+  labels:
+    kubernetes.io/service-name: manual-endpoints   # this label is the link
+addressType: IPv4
+ports:
+  - name: http
+    port: 80
+    protocol: TCP
+endpoints:
+  - addresses: ["PLACEHOLDER_IP"]                  # filled in by the script

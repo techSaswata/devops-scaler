@@ -1,0 +1,247 @@
+
+=== 1. COREDNS — the cluster's phonebook ===
+
+$ kubectl get pods -n kube-system -l k8s-app=kube-dns -o wide
+NAME                       READY   STATUS    RESTARTS   AGE   IP           NODE                      NOMINATED NODE   READINESS GATES
+coredns-559f6c778d-2twbg   1/1     Running   0          90m   10.244.0.3   devops-hw-control-plane   <none>           <none>
+coredns-559f6c778d-9t8tc   1/1     Running   0          90m   10.244.0.4   devops-hw-control-plane   <none>           <none>
+
+$ kubectl get svc -n kube-system kube-dns
+NAME       TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)                  AGE
+kube-dns   ClusterIP   10.96.0.10   <none>        53/UDP,53/TCP,9153/TCP   90m
+>> CoreDNS runs as an ordinary Deployment, fronted by a ClusterIP Service.
+>> Every pod is configured to use that Service IP as its resolver.
+
+=== 2. INSIDE A POD: /etc/resolv.conf ===
+
+$ kubectl exec net-client -- cat /etc/resolv.conf
+search default.svc.cluster.local svc.cluster.local cluster.local
+nameserver 10.96.0.10
+options ndots:5
+
+  nameserver 10.96.0.10          <- the kube-dns Service ClusterIP (CoreDNS)
+  search default.svc.cluster.local svc.cluster.local cluster.local
+                                 <- tried IN ORDER for any SHORT name
+  options ndots:5                <- names with FEWER than 5 dots get the
+                                    search list appended before being tried
+                                    as-is
+
+  This is why "backend-clusterip" works from inside a pod: the resolver tries
+  backend-clusterip.default.svc.cluster.local first, and that hits.
+
+=== 3. THE ANATOMY OF A KUBERNETES FQDN ===
+
+    backend-clusterip . default . svc . cluster.local
+    ----------------   -------   ---   -------------
+         |                |       |          |
+         |                |       |          +-- cluster domain (configurable)
+         |                |       +------------- "svc" = this is a Service
+         |                +--------------------- the NAMESPACE
+         +-------------------------------------- the SERVICE name
+
+--- all four forms reach the same Service (resolved via getaddrinfo) ---
+  backend-clusterip                              -> OK  (served by backend-756d8ffd68-x4vsr)
+  backend-clusterip.default                      -> OK  (served by backend-756d8ffd68-ttqx5)
+  backend-clusterip.default.svc                  -> OK  (served by backend-756d8ffd68-h29fq)
+  backend-clusterip.default.svc.cluster.local    -> OK  (served by backend-756d8ffd68-x4vsr)
+
+>> Shorter forms rely on the search list. The FULL FQDN is unambiguous and
+>> is what you should put in config files - it also avoids the extra DNS
+>> lookups that ndots:5 causes for short names.
+
+=== 4. CROSS-NAMESPACE RESOLUTION ===
+
+$ kubectl create namespace team-b
+namespace/team-b created
+
+$ kubectl -n team-b create deployment other --image=nginx:1.27-alpine
+deployment.apps/other created
+
+$ kubectl -n team-b expose deployment other --port=80
+service/other exposed
+
+--- the SHORT name fails from the default namespace ---
+
+$ kubectl exec net-client -- nslookup other 2>&1 | tail -3
+** server can't find other.svc.cluster.local: NXDOMAIN
+
+command terminated with exit code 1
+>> Correct: the search list only tries 'default.svc.cluster.local'.
+
+--- namespace-qualified works ---
+
+$ kubectl exec net-client -- nslookup other.team-b.svc.cluster.local 2>&1 | grep -A1 '^Name:'
+Name:	other.team-b.svc.cluster.local
+Address: 10.96.46.107
+
+$ kubectl exec net-client -- wget -qO- --timeout=3 http://other.team-b.svc.cluster.local | head -4
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+>> Namespaces isolate NAMES, not NETWORK. By default any pod can reach any
+>> other pod across namespaces - you need NetworkPolicies to stop that.
+
+$ kubectl delete namespace team-b --wait=false
+namespace "team-b" deleted
+
+=== 5. POD DNS vs SERVICE DNS ===
+Services get:  <service>.<ns>.svc.cluster.local
+Pods get:      <pod-ip-with-dashes>.<ns>.pod.cluster.local
+
+a backend pod has IP 10.244.1.86, so its pod DNS name is:
+  10-244-1-86.default.pod.cluster.local
+  reachable? -> OK  (served by backend-756d8ffd68-h29fq)
+>> Rarely used directly - it is derived from an EPHEMERAL IP. For stable
+>> per-pod names you want a headless Service + StatefulSet (part 1, §5).
+
+=== 6. HOW TRAFFIC ACTUALLY FLOWS — kube-proxy ===
+
+$ kubectl get pods -n kube-system -l k8s-app=kube-proxy -o wide
+NAME               READY   STATUS    RESTARTS   AGE   IP           NODE                      NOMINATED NODE   READINESS GATES
+kube-proxy-6sh5b   1/1     Running   0          90m   172.19.0.4   devops-hw-control-plane   <none>           <none>
+kube-proxy-qwm9w   1/1     Running   0          90m   172.19.0.2   devops-hw-worker2         <none>           <none>
+kube-proxy-znqkb   1/1     Running   0          90m   172.19.0.3   devops-hw-worker          <none>           <none>
+
+--- the ClusterIP 10.96.133.182 belongs to NO interface anywhere ---
+
+$ kubectl exec net-client -- ip addr show 2>/dev/null | grep -c 10.96.133.182 || echo '0 matches - the ClusterIP is not on any interface'
+0
+0 matches - the ClusterIP is not on any interface
+
+--- it exists only as iptables NAT rules on every node ---
+$ docker exec devops-hw-worker iptables-save -t nat | grep 10.96.133.182
+-A KUBE-SERVICES -d 10.96.133.182/32 -p tcp -m comment --comment "default/backend-clusterip:http cluster IP" -m tcp --dport 80 -j KUBE-SVC-WC6DKYSEJL5NEAVZ
+-A KUBE-SVC-WC6DKYSEJL5NEAVZ ! -s 10.244.0.0/16 -d 10.96.133.182/32 -p tcp -m comment --comment "default/backend-clusterip:http cluster IP" -m tcp --dport 80 -j KUBE-MARK-MASQ
+
+$ docker exec devops-hw-worker iptables-save -t nat | grep -c KUBE-SVC
+49
+
+  THE PATH A PACKET TAKES:
+
+    pod sends to 10.96.x.x:80  (the ClusterIP)
+        |
+        v
+    iptables PREROUTING/OUTPUT -> KUBE-SERVICES chain
+        |
+        v
+    KUBE-SVC-xxxx chain: picks ONE endpoint, statistically
+        |
+        v
+    KUBE-SEP-xxxx chain: DNAT to a real pod IP:port
+        |
+        v
+    the packet is routed to that pod by the CNI
+
+  So the "load balancer" is not a process - it is DNAT rules, refreshed by
+  kube-proxy whenever endpoints change. Nothing terminates the connection.
+
+  At large scale iptables becomes slow (rules are evaluated linearly), which is
+  why production clusters switch kube-proxy to IPVS mode, or replace it with
+  eBPF (Cilium).
+
+=== 7. TROUBLESHOOTING: A SERVICE WITH NO ENDPOINTS ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/10-k8s-networking-services/manifests/06-broken-endpoints.yaml
+service/broken-backend-service configured
+
+$ kubectl get svc broken-backend-service
+NAME                     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+broken-backend-service   ClusterIP   10.96.109.217   <none>        80/TCP    61s
+>> The Service was created successfully and HAS a ClusterIP. Looks healthy.
+
+--- but nothing answers ---
+$ wget http://broken-backend-service
+  result: (empty - connection refused)
+
+--- STEP 1: check the endpoints. This is always the first move. ---
+
+$ kubectl get endpoints broken-backend-service
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME                     ENDPOINTS   AGE
+broken-backend-service   <none>      62s
+
+$ kubectl get endpointslice -l kubernetes.io/service-name=broken-backend-service
+NAME                           ADDRESSTYPE   PORTS     ENDPOINTS   AGE
+broken-backend-service-vqhkz   IPv4          <unset>   <unset>     62s
+>> ENDPOINTS = <none>. The Service matches ZERO pods.
+
+--- STEP 2: compare the Service selector with the pod labels ---
+
+$ kubectl get svc broken-backend-service -o jsonpath='service selector: {.spec.selector}{"\n"}'
+service selector: {"app":"wrong-backend-name"}
+
+$ kubectl get pods -l app=backend -o jsonpath='pod labels:      {.items[0].metadata.labels}{"\n"}'
+pod labels:      {"app":"backend","pod-template-hash":"756d8ffd68"}
+>> selector says app=wrong-backend-name, the pods say app=backend.
+
+--- STEP 3: fix the selector ---
+$ kubectl patch svc broken-backend-service -p '{"spec":{"selector":{"app":"backend"}}}'
+service/broken-backend-service patched
+
+$ kubectl get endpoints broken-backend-service
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME                     ENDPOINTS                                       AGE
+broken-backend-service   10.244.1.86:80,10.244.1.87:80,10.244.2.109:80   65s
+  wget now returns: served by backend-756d8ffd68-x4vsr
+
+  EMPTY ENDPOINTS - THE FOUR CAUSES, IN ORDER OF FREQUENCY:
+
+    1. selector does not match the pod labels        (this drill)
+    2. the pods exist but are NOT READY              (readiness probe failing)
+    3. targetPort does not match the container port
+    4. the pods are in a DIFFERENT NAMESPACE than the Service
+
+  Cause 2 is the sneaky one: `kubectl get pods` shows Running, but READY is
+  0/1, and only READY pods are added to endpoints.
+
+=== 8. A SERVICE WITHOUT A SELECTOR ===
+
+$ cat /tmp/no-selector.yaml | tail -14
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: manual-endpoints-1
+  labels:
+    kubernetes.io/service-name: manual-endpoints   # this label is the link
+addressType: IPv4
+ports:
+  - name: http
+    port: 80
+    protocol: TCP
+endpoints:
+  - addresses: ["10.244.1.86"]                  # filled in by the script
+
+$ kubectl apply -f /tmp/no-selector.yaml
+service/manual-endpoints created
+endpointslice.discovery.k8s.io/manual-endpoints-1 created
+
+$ kubectl get svc manual-endpoints
+NAME               TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+manual-endpoints   ClusterIP   10.96.83.161   <none>        80/TCP    3s
+
+$ kubectl get endpointslice -l kubernetes.io/service-name=manual-endpoints
+NAME                 ADDRESSTYPE   PORTS   ENDPOINTS     AGE
+manual-endpoints-1   IPv4          80      10.244.1.86   3s
+  wget http://manual-endpoints -> served by backend-756d8ffd68-h29fq
+
+>> A Service with no selector does not get endpoints automatically, so you
+>> supply them yourself. This is how you put a stable in-cluster name in
+>> front of something Kubernetes does NOT manage: an external database, a
+>> legacy VM, or a service in another cluster.
+>> Compare with ExternalName, which is DNS-only: this form gives you a real
+>> ClusterIP and real load balancing over addresses you choose.
+
+=== 9. CLEAN UP ===
+
+$ kubectl get svc
+NAME                     TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+backend-clusterip        ClusterIP      10.96.133.182   <none>        80/TCP         2m31s
+backend-headless         ClusterIP      None            <none>        80/TCP         2m13s
+backend-loadbalancer     LoadBalancer   10.96.79.150    <pending>     80:32180/TCP   2m24s
+backend-nodeport         NodePort       10.96.178.52    <none>        80:30080/TCP   2m25s
+broken-backend-service   ClusterIP      10.96.109.217   <none>        80/TCP         69s
+external-db              ExternalName   <none>          example.com   <none>         2m16s
+kubernetes               ClusterIP      10.96.0.1       <none>        443/TCP        2m29s
+sts-headless             ClusterIP      None            <none>        80/TCP         2m13s
