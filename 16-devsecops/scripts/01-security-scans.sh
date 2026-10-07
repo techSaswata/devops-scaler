@@ -125,3 +125,35 @@ cat <<'NOTE'
     Image scan    the built artifact  after build, BEFORE push
     Config scan   our manifests       after push, before deploy
 NOTE
+
+hr "8. DEPLOY THE GATE-APPROVED IMAGE"
+IMAGE=ghcr.io/techsaswata/devops-scaler/devsecops-demo:latest
+echo ">> This image was pushed ONLY because every security control passed."
+run "docker pull -q $IMAGE"
+kubectl delete namespace devsecops --ignore-not-found --wait=true >/dev/null 2>&1
+kubectl create namespace devsecops >/dev/null
+echo "\$ kubectl create secret generic devsecops-demo --from-literal=... (OUT OF BAND)"
+kubectl create secret generic devsecops-demo -n devsecops \
+  --from-literal=DB_PASSWORD='supplied-at-deploy-time' \
+  --from-literal=API_KEY='supplied-at-deploy-time' >/dev/null
+echo "secret created without ever being committed"
+sed "s|IMAGE_PLACEHOLDER|$IMAGE|" "$D/k8s/deployment.yaml" > /tmp/dso.yaml
+run "kubectl apply -n devsecops -f /tmp/dso.yaml"
+kubectl rollout status deployment/devsecops-demo -n devsecops --timeout=300s
+run "kubectl get all -n devsecops"
+echo
+echo "--- the hardening actually took effect in the cluster ---"
+P=$(kubectl get pods -n devsecops -l app=devsecops-demo -o jsonpath='{.items[0].metadata.name}')
+run "kubectl get pod $P -n devsecops -o jsonpath='runAsNonRoot={.spec.securityContext.runAsNonRoot}  runAsUser={.spec.securityContext.runAsUser}  readOnlyRootFS={.spec.containers[0].securityContext.readOnlyRootFilesystem}  privEsc={.spec.containers[0].securityContext.allowPrivilegeEscalation}  caps={.spec.containers[0].securityContext.capabilities.drop}{\"\\n\"}'"
+run "kubectl exec $P -n devsecops -- id"
+echo "\$ kubectl exec $P -n devsecops -- touch /forbidden   (readOnlyRootFilesystem)"
+kubectl exec "$P" -n devsecops -- touch /forbidden 2>&1 | head -2
+echo ">> Read-only root filesystem rejected the write, as configured."
+echo
+echo "--- the app runs, with credentials from the Secret ---"
+kubectl run dso-client -n devsecops --image=busybox:1.36 --restart=Never -- sleep infinity >/dev/null 2>&1
+kubectl wait --for=condition=Ready pod/dso-client -n devsecops --timeout=180s >/dev/null 2>&1
+echo "\$ wget -qO- http://devsecops-demo/"
+kubectl exec dso-client -n devsecops -- wget -qO- --timeout=3 http://devsecops-demo/ 2>/dev/null; echo
+echo "\$ wget -qO- --post-data '{\"password\":\"hunter2\"}' .../hash"
+kubectl exec dso-client -n devsecops -- wget -qO- --timeout=3 --header='Content-Type: application/json' --post-data='{"password":"hunter2"}' http://devsecops-demo/hash 2>/dev/null; echo

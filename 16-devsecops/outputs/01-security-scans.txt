@@ -44,7 +44,7 @@ $ /tmp/cicdvenv/bin/bandit -r src/ -c ../security/bandit.yaml -f screen
 [manager]	WARNING	Test in comment: see is not a test name or id, ignoring
 [manager]	WARNING	Test in comment: justification is not a test name or id, ignoring
 [manager]	WARNING	Test in comment: above is not a test name or id, ignoring
-[95mRun started:2026-10-07 19:05:25.712403+00:00[0m
+[95mRun started:2026-10-07 19:14:48.379499+00:00[0m
 [95m
 Test results:[0m
 	No issues identified.
@@ -120,7 +120,7 @@ $ grep -n 'os.getenv' /Users/techsaswata/Downloads/devops-scaler/16-devsecops/ap
 === 5. DOCKER BUILD ===
 
 $ docker build -q -t devsecops-demo:scan /Users/techsaswata/Downloads/devops-scaler/16-devsecops/app
-sha256:a2a437249b7a67549a96081db1cc381c317ec7a5a77e336d18e281976125e904
+sha256:673d9bf55f6b9c348070e5618279439cf15661e879adc62025fec6c169868365
 
 $ docker images devsecops-demo --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}'
 REPOSITORY       TAG       SIZE
@@ -189,3 +189,52 @@ Legend:
     Secret scan   our repository      including full git history
     Image scan    the built artifact  after build, BEFORE push
     Config scan   our manifests       after push, before deploy
+
+=== 8. DEPLOY THE GATE-APPROVED IMAGE ===
+>> This image was pushed ONLY because every security control passed.
+
+$ docker pull -q ghcr.io/techsaswata/devops-scaler/devsecops-demo:latest
+ghcr.io/techsaswata/devops-scaler/devsecops-demo:latest
+$ kubectl create secret generic devsecops-demo --from-literal=... (OUT OF BAND)
+secret created without ever being committed
+
+$ kubectl apply -n devsecops -f /tmp/dso.yaml
+deployment.apps/devsecops-demo created
+service/devsecops-demo created
+Waiting for deployment "devsecops-demo" rollout to finish: 0 of 2 updated replicas are available...
+Waiting for deployment "devsecops-demo" rollout to finish: 1 of 2 updated replicas are available...
+deployment "devsecops-demo" successfully rolled out
+
+$ kubectl get all -n devsecops
+NAME                                  READY   STATUS    RESTARTS   AGE
+pod/devsecops-demo-66498d66b4-8xmfk   1/1     Running   0          78s
+pod/devsecops-demo-66498d66b4-jzq8j   1/1     Running   0          78s
+
+NAME                     TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+service/devsecops-demo   ClusterIP   10.96.225.22   <none>        80/TCP    78s
+
+NAME                             READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/devsecops-demo   2/2     2            2           78s
+
+NAME                                        DESIRED   CURRENT   READY   AGE
+replicaset.apps/devsecops-demo-66498d66b4   2         2         2       78s
+
+--- the hardening actually took effect in the cluster ---
+
+$ kubectl get pod devsecops-demo-66498d66b4-8xmfk -n devsecops -o jsonpath='runAsNonRoot={.spec.securityContext.runAsNonRoot}  runAsUser={.spec.securityContext.runAsUser}  readOnlyRootFS={.spec.containers[0].securityContext.readOnlyRootFilesystem}  privEsc={.spec.containers[0].securityContext.allowPrivilegeEscalation}  caps={.spec.containers[0].securityContext.capabilities.drop}{"\n"}'
+runAsNonRoot=true  runAsUser=10001  readOnlyRootFS=true  privEsc=false  caps=["ALL"]
+
+$ kubectl exec devsecops-demo-66498d66b4-8xmfk -n devsecops -- id
+uid=10001(appuser) gid=10001(appuser) groups=10001(appuser)
+$ kubectl exec devsecops-demo-66498d66b4-8xmfk -n devsecops -- touch /forbidden   (readOnlyRootFilesystem)
+touch: cannot touch '/forbidden': Read-only file system
+command terminated with exit code 1
+>> Read-only root filesystem rejected the write, as configured.
+
+--- the app runs, with credentials from the Secret ---
+$ wget -qO- http://devsecops-demo/
+{"app":"devsecops-demo","status":"ok","version":"1.0.0"}
+
+$ wget -qO- --post-data '{"password":"hunter2"}' .../hash
+{"hash":"6f6403a721cfa60ccf104ad9a10c0cbb"}
+
