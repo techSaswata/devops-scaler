@@ -1,0 +1,147 @@
+# ============================================================================
+#  CI PIPELINE — Session 16
+#  Runs on every push and pull request that touches the module-15 application.
+#
+#  WORKFLOW -> JOBS -> STEPS is the Actions hierarchy:
+#    workflow  this file
+#    job       a unit scheduled onto a RUNNER; jobs run in PARALLEL by default
+#    step      a command or action; steps run in order, sharing a filesystem
+# ============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '15-cicd-github-actions/app/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - '15-cicd-github-actions/app/**'
+  workflow_dispatch:        # lets the workflow be triggered by hand from the UI
+
+defaults:
+  run:
+    working-directory: 15-cicd-github-actions/app
+
+jobs:
+  # ---------------------------------------------------------------- lint ----
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip        # cache the pip downloads between runs
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: flake8
+        # Fail on real errors; treat style issues as warnings so the build
+        # stays useful rather than pedantic.
+        run: |
+          flake8 src tests --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 src tests --count --max-line-length=100 --exit-zero --statistics
+
+  # ---------------------------------------------------------------- test ----
+  test:
+    name: Unit tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      # A MATRIX runs the same job once per value, in parallel. This is how you
+      # prove the app works on more than one interpreter without duplicating YAML.
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run pytest with coverage
+        run: pytest tests/ -v --cov=src --cov-report=term --cov-report=xml
+
+      - name: Upload coverage as an ARTIFACT
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python-version }}
+          path: 15-cicd-github-actions/app/coverage.xml
+          retention-days: 7
+
+  # --------------------------------------------------------------- build ----
+  build:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    # `needs` creates a DEPENDENCY: build only starts once both jobs succeed.
+    # Without it all three would run in parallel and a broken test would still
+    # produce an image.
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: 15-cicd-github-actions/app
+          push: false                 # CI only builds; CD pushes
+          tags: cicd-demo:${{ github.sha }}
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test the built image
+        run: |
+          docker run -d --name smoke -p 5000:5000 cicd-demo:${{ github.sha }}
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:5000/health >/dev/null 2>&1; then
+              echo "container healthy after ${i}s"; break
+            fi
+            [ "$i" = "30" ] && { echo "never became healthy"; docker logs smoke; exit 1; }
+            sleep 1
+          done
+          echo "--- GET / ---"
+          curl -s http://localhost:5000/ | tee response.json
+          echo
+          echo "--- GET /add/2/3 ---"
+          curl -s http://localhost:5000/add/2/3
+          echo
+          docker rm -f smoke
+
+      - name: Upload the smoke-test response
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-response
+          path: 15-cicd-github-actions/app/response.json
+          retention-days: 7
+
+  # --------------------------------------------------------------- gate -----
+  ci-summary:
+    name: CI summary
+    runs-on: ubuntu-latest
+    needs: [lint, test, build]
+    if: always()        # run even when an upstream job failed, so we can report
+    steps:
+      - name: Report
+        run: |
+          echo "## CI result" >> $GITHUB_STEP_SUMMARY
+          echo "| job | result |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| lint  | ${{ needs.lint.result }} |"  >> $GITHUB_STEP_SUMMARY
+          echo "| test  | ${{ needs.test.result }} |"  >> $GITHUB_STEP_SUMMARY
+          echo "| build | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail if anything upstream failed
+        if: needs.lint.result != 'success' || needs.test.result != 'success' || needs.build.result != 'success'
+        run: exit 1
