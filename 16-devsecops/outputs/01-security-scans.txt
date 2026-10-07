@@ -17,7 +17,7 @@ tests/test_app.py::test_health PASSED                                    [ 75%]
 tests/test_app.py::test_hash_route_requires_password PASSED              [ 87%]
 tests/test_app.py::test_hash_route_ok PASSED                             [100%]
 
-============================== 8 passed in 0.27s ===============================
+============================== 8 passed in 0.28s ===============================
 
 === 2. SAST — bandit (static analysis of our own code) ===
 
@@ -44,7 +44,7 @@ $ /tmp/cicdvenv/bin/bandit -r src/ -c ../security/bandit.yaml -f screen
 [manager]	WARNING	Test in comment: see is not a test name or id, ignoring
 [manager]	WARNING	Test in comment: justification is not a test name or id, ignoring
 [manager]	WARNING	Test in comment: above is not a test name or id, ignoring
-[95mRun started:2026-10-07 18:58:09.797199+00:00[0m
+[95mRun started:2026-10-07 19:02:04.276250+00:00[0m
 [95m
 Test results:[0m
 	No issues identified.
@@ -120,7 +120,7 @@ $ grep -n 'os.getenv' /Users/techsaswata/Downloads/devops-scaler/16-devsecops/ap
 === 5. DOCKER BUILD ===
 
 $ docker build -q -t devsecops-demo:scan /Users/techsaswata/Downloads/devops-scaler/16-devsecops/app
-sha256:57ed3d4e90d101a92c0cf58a8f45563aa6022223a0beea0b40266a19eb398c66
+sha256:85ed4e38fda130ffc1ac1f8dc1493d25e460b3a9bce03ac32595d1f2f9a10b88
 
 $ docker images devsecops-demo --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}'
 REPOSITORY       TAG       SIZE

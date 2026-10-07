@@ -16,5 +16,6 @@ paths = [
   '''.*/outputs/.*\.txt$''',      # captured scanner output quotes findings back
   '''.*/screenshots/.*''',
   '''.*\.md$''',                  # documentation shows example values
-  '''security/\.gitleaks\.toml''' # this file contains the patterns themselves
+  '''security/\.gitleaks\.toml''',  # this file contains the patterns themselves
+  '''.*/secret\.example\.yaml$'''   # placeholders only - REPLACE_ME, never real values
 ]
