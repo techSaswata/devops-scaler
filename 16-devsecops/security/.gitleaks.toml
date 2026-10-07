@@ -1,0 +1,20 @@
+# gitleaks configuration — secret scanning.
+title = "devops-scaler secret scan"
+
+[extend]
+useDefault = true          # inherit gitleaks' built-in rule set
+
+[[rules]]
+id = "generic-api-key-assignment"
+description = "Hard-coded API key or password assignment"
+regex = '''(?i)(api[_-]?key|secret|passwd|password|token)\s*[:=]\s*["'][A-Za-z0-9/+=_\-]{12,}["']'''
+tags = ["key", "generic"]
+
+[allowlist]
+description = "Paths that legitimately contain example or test values"
+paths = [
+  '''.*/outputs/.*\.txt$''',      # captured scanner output quotes findings back
+  '''.*/screenshots/.*''',
+  '''.*\.md$''',                  # documentation shows example values
+  '''security/\.gitleaks\.toml''' # this file contains the patterns themselves
+]

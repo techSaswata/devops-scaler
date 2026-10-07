@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devsecops-demo
+  labels: { app: devsecops-demo }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: devsecops-demo } }
+  template:
+    metadata: { labels: { app: devsecops-demo } }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: app
+          image: IMAGE_PLACEHOLDER
+          ports: [{ containerPort: 5000, name: http }]
+          # Hardening that an admission controller (or Trivy's k8s scanner) checks:
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          envFrom:
+            - secretRef: { name: devsecops-demo }
+          volumeMounts:
+            # readOnlyRootFilesystem means writable paths must be explicit.
+            - { name: tmp, mountPath: /tmp }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 300m, memory: 256Mi }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devsecops-demo
+spec:
+  type: ClusterIP
+  selector: { app: devsecops-demo }
+  ports: [{ port: 80, targetPort: http, name: http }]

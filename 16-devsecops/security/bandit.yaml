@@ -1,0 +1,4 @@
+# bandit — SAST for Python.
+# B101 (assert_used) is excluded because pytest relies on bare asserts.
+exclude_dirs: ['/tests', '/.venv']
+skips: ['B101']

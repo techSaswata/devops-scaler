@@ -1,0 +1,11 @@
+# Trivy — SCA (dependency CVEs) and container image scanning.
+severity:
+  - HIGH
+  - CRITICAL
+vulnerability:
+  type:
+    - os
+    - library
+# Findings with no available fix cannot be actioned by us, so they do not fail
+# the build. They are still reported.
+ignore-unfixed: true

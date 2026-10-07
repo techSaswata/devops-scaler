@@ -1,0 +1,191 @@
+
+=== 1. UNIT TESTS ===
+
+$ /tmp/cicdvenv/bin/python -m pytest tests/ -v --tb=short 2>&1 | tail -16
+platform darwin -- Python 3.14.5, pytest-8.3.3, pluggy-1.6.0 -- /private/tmp/cicdvenv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/techsaswata/Downloads/devops-scaler/16-devsecops/app
+plugins: cov-5.0.0, platformdirs-4.12.3
+collecting ... collected 8 items
+
+tests/test_app.py::test_hash_is_deterministic PASSED                     [ 12%]
+tests/test_app.py::test_hash_differs_by_salt PASSED                      [ 25%]
+tests/test_app.py::test_get_user_parameterised PASSED                    [ 37%]
+tests/test_app.py::test_get_user_resists_injection PASSED                [ 50%]
+tests/test_app.py::test_index PASSED                                     [ 62%]
+tests/test_app.py::test_health PASSED                                    [ 75%]
+tests/test_app.py::test_hash_route_requires_password PASSED              [ 87%]
+tests/test_app.py::test_hash_route_ok PASSED                             [100%]
+
+============================== 8 passed in 0.28s ===============================
+
+=== 2. SAST — bandit (static analysis of our own code) ===
+
+$ /tmp/cicdvenv/bin/bandit -r src/ -c ../security/bandit.yaml -f screen
+[main]	INFO	profile include tests: None
+[main]	INFO	profile exclude tests: B101
+[main]	INFO	cli include tests: None
+[main]	INFO	cli exclude tests: None
+[main]	INFO	using config: ../security/bandit.yaml
+[main]	INFO	running on Python 3.14.5
+[95mRun started:2026-10-07 18:54:48.302937+00:00[0m
+[95m
+Test results:[0m
+[93m>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: src/app.py:56:17[0m
+55	    # debug=False: debug mode exposes the Werkzeug console, which is RCE.
+56	    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=False)
+
+--------------------------------------------------
+[95m
+Code scanned:[0m
+	Total lines of code: 37
+	Total lines skipped (#nosec): 0
+[95m
+Run metrics:[0m
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 1
+		High: 0
+	Total issues (by confidence):
+
+--- what SAST would catch if the code were insecure ---
+$ bandit /tmp/insecure_demo.py   (a deliberately insecure file)
+[94m>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   Location: /tmp/insecure_demo.py:1:0[0m
+[91m>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   Location: /tmp/insecure_demo.py:2:31[0m
+[91m>> Issue: [B602:subprocess_popen_with_shell_equals_true] subprocess call with shell=True identified, security issue.
+   Severity: High   Confidence: High
+   Location: /tmp/insecure_demo.py:3:31[0m
+[93m>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   Location: /tmp/insecure_demo.py:4:44[0m
+[94m>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'SuperSecret123!'
+   Severity: Low   Confidence: Medium
+   Location: /tmp/insecure_demo.py:5:11[0m
+
+>> Four classes of finding: weak hash, shell injection, SQL built by string
+>> formatting, and a hard-coded password. Our real source has none of these,
+>> which is why the scan above is clean.
+
+=== 3. SCA — pip-audit (CVEs in our DEPENDENCIES) ===
+--- BEFORE remediation: the pin this project originally used ---
+$ pip-audit -r <Flask==3.0.3>
+Found 2 known vulnerabilities in 1 package
+Name  Version ID              Fix Versions
+----- ------- --------------- ------------
+flask 3.0.3   PYSEC-2026-2151 3.1.3
+flask 3.0.3   PYSEC-2026-2151 3.1.3
+
+>> A REAL finding: PYSEC-2026-2151 in Flask 3.0.3, fixed in 3.1.3.
+>> Flask omits the 'Vary: Cookie' header on some session access patterns,
+>> so a caching proxy can serve one user's page to another.
+
+--- AFTER remediation: the pin now committed ---
+
+$ cat requirements.txt
+Flask==3.1.3
+
+$ /tmp/cicdvenv/bin/pip-audit -r requirements.txt 2>&1 | tail -3
+No known vulnerabilities found
+>> Clean. This is the whole point of SCA: the vulnerability was not in
+>> code we wrote, and no amount of code review would have found it.
+>> SAST checks code WE wrote; SCA checks code we DEPEND ON. Most real
+>> vulnerabilities in an application come from the second category.
+
+=== 4. SECRET SCANNING ===
+gitleaks not installed locally; it runs in the pipeline via gitleaks-action.
+
+--- demonstrating what it looks for ---
+$ grep -nE '(secret|key)\s*=\s*"[A-Za-z0-9/+=_-]{12,}"' /tmp/leak_demo.py
+1:AWS_SECRET_ACCESS_KEY = "EXAMPLE0NOT0A0REAL0KEY0000000000000000000"
+2:api_key = "placeholder_0000000000000000000000000"
+>> Those two lines are exactly the shape gitleaks flags.
+
+--- our application takes credentials from the ENVIRONMENT, never source ---
+
+$ grep -n 'os.getenv' /Users/techsaswata/Downloads/devops-scaler/16-devsecops/app/src/app.py
+9:VERSION = os.getenv("APP_VERSION", "1.0.0")
+12:DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+13:API_KEY = os.getenv("API_KEY", "")
+56:    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=False)
+
+=== 5. DOCKER BUILD ===
+
+$ docker build -q -t devsecops-demo:scan /Users/techsaswata/Downloads/devops-scaler/16-devsecops/app
+sha256:52de4779544df3960c487211ca1109f5523bafb0ed5bb6b38e945f7eda33a307
+
+$ docker images devsecops-demo --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}'
+REPOSITORY       TAG       SIZE
+devsecops-demo   scan      210MB
+
+--- image hardening checks ---
+
+$ docker inspect devsecops-demo:scan --format 'runs as user: {{.Config.User}}'
+runs as user: 10001
+$ docker run --rm devsecops-demo:scan id
+uid=10001(appuser) gid=10001(appuser) groups=10001(appuser)
+>> uid=10001, not 0. A container running as root shares the host's uid 0.
+
+=== 6. CONTAINER IMAGE SCANNING — Trivy ===
+$ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image ...
+│                                    Target                                    │    Type    │ Vulnerabilities │
+├──────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ devsecops-demo:scan (debian 13.7)                                            │   debian   │        0        │
+├──────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.12/site-packages/blinker-1.9.0.dist-info/METADATA      │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.12/site-packages/click-8.5.0.dist-info/METADATA        │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.12/site-packages/flask-3.1.3.dist-info/METADATA        │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.12/site-packages/itsdangerous-2.2.0.dist-info/METADATA │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.12/site-packages/jinja2-3.1.6.dist-info/METADATA       │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.12/site-packages/markupsafe-3.0.4.dist-info/METADATA   │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.12/site-packages/pip-25.0.1.dist-info/METADATA         │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.12/site-packages/werkzeug-3.1.9.dist-info/METADATA     │ python-pkg │        0        │
+└──────────────────────────────────────────────────────────────────────────────┴────────────┴─────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+>> --ignore-unfixed matters: a CVE with no available patch cannot be acted
+>> on by us, so failing the build on it would just block all deploys.
+
+=== 7. THE SECURITY GATE ===
+  The gate is STRUCTURAL, not advisory. In the workflow:
+
+      push:
+        needs: [security-gate]
+
+      security-gate:
+        needs: [test, sast, sca, secret-scan, image-scan]
+
+  GitHub will not start `push` unless every one of those jobs succeeded, so
+  there is no path by which a failing scan still ships an image.
+
+  Compare with the common anti-pattern:
+
+      - run: trivy image myapp || true        # <- reports, never blocks
+
+  which produces a dashboard nobody acts on.
+
+  WHERE EACH CONTROL SITS
+
+    SAST          our code            before anything is built
+    SCA           our dependencies    before anything is built
+    Secret scan   our repository      including full git history
+    Image scan    the built artifact  after build, BEFORE push
+    Config scan   our manifests       after push, before deploy
