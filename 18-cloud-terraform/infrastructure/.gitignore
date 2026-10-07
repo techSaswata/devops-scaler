@@ -1,0 +1,13 @@
+# Terraform state holds every resource attribute in PLAIN TEXT - never commit it.
+*.tfstate
+*.tfstate.*
+
+# .terraform/ contains downloaded provider binaries. The AWS provider alone is
+# ~650 MB, well over GitHub's 100 MB per-file limit. It is a build artefact:
+# `terraform init` recreates it.
+.terraform/
+.terraform.lock.hcl
+
+crash.log
+tfplan
+*.tfvars.secret

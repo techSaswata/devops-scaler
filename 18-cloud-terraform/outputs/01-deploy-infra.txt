@@ -1,0 +1,375 @@
+
+=== 0. TARGET ACCOUNT AND REGION ===
+  Account: 0438********  (redacted)
+  Arn:     parmita-lms
+  Region:  ap-south-1
+
+$ aws ec2 describe-availability-zones --query 'AvailabilityZones[].ZoneName' --output text
+ap-south-1a	ap-south-1b	ap-south-1c
+
+=== 1. THE ARCHITECTURE ===
+                         Internet
+                            │
+                      ┌─────▼─────┐
+                      │    IGW    │
+                      └─────┬─────┘
+    ┌───────────────────────┼────────────────────────────┐
+    │ VPC  10.20.0.0/16     │                            │
+    │  ┌────────────────────▼─────────────────────────┐  │
+    │  │ PUBLIC   10.20.1.0/24 (az-a)                 │  │
+    │  │          10.20.2.0/24 (az-b)                 │  │
+    │  │   EC2 (nginx) ── web-sg: 80 from 0.0.0.0/0   │  │
+    │  │        │  IAM instance role                  │  │
+    │  └────────┼─────────────────────────────────────┘  │
+    │           │ no key, temporary credentials          │
+    │  ┌────────┼─────────────────────────────────────┐  │
+    │  │ PRIVATE 10.20.11.0/24   10.20.12.0/24        │  │
+    │  │   app-sg: 8080 FROM web-sg (not a CIDR)      │  │
+    │  │   no 0.0.0.0/0 route                         │  │
+    │  └──────────────────────────────────────────────┘  │
+    └───────────────────────┼────────────────────────────┘
+                            ▼
+                     S3  assets bucket
+              versioned, encrypted, public access blocked
+
+=== 2. terraform init / fmt / validate ===
+
+$ terraform init 2>&1 | tail -8
+[0m[32m
+You may now begin working with Terraform. Try running "terraform plan" to see
+any changes that are required for your infrastructure. All Terraform commands
+should now work.
+
+If you ever set or change modules or backend configuration for Terraform,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.[0m
+
+$ terraform fmt -check -recursive
+
+$ terraform validate
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+
+=== 3. terraform plan ===
+
+$ terraform plan -out=tfplan
+
+Changes to Outputs:
+  [32m+[0m[0m availability_zones    = [
+      [32m+[0m[0m "ap-south-1a",
+      [32m+[0m[0m "ap-south-1b",
+    ]
+  [32m+[0m[0m bucket_name           = (known after apply)
+  [32m+[0m[0m iam_role_name         = "devops-hw-infra-ec2-role"
+  [32m+[0m[0m instance_id           = (known after apply)
+  [32m+[0m[0m instance_private_ip   = (known after apply)
+  [32m+[0m[0m instance_public_ip    = (known after apply)
+  [32m+[0m[0m private_subnet_ids    = [
+      [32m+[0m[0m (known after apply),
+      [32m+[0m[0m (known after apply),
+    ]
+  [32m+[0m[0m public_subnet_ids     = [
+      [32m+[0m[0m (known after apply),
+      [32m+[0m[0m (known after apply),
+    ]
+  [32m+[0m[0m vpc_cidr              = "10.20.0.0/16"
+  [32m+[0m[0m vpc_id                = (known after apply)
+  [32m+[0m[0m web_security_group_id = (known after apply)
+  [32m+[0m[0m web_url               = (known after apply)
+[90m
+─────────────────────────────────────────────────────────────────────────────[0m
+
+Saved the plan to: tfplan
+
+To perform exactly these actions, run the following command to apply:
+    terraform apply "tfplan"
+
+$ terraform show -json tfplan | python3 -c 'import json,sys; d=json.load(sys.stdin); print("resources to create:", len(d["resource_changes"]))'
+resources to create: 25
+
+--- resource types in the plan ---
+  1 x aws_iam_instance_profile
+  1 x aws_iam_policy_document
+  1 x aws_iam_role
+  1 x aws_iam_role_policy
+  1 x aws_instance
+  1 x aws_internet_gateway
+  2 x aws_route_table
+  4 x aws_route_table_association
+  1 x aws_s3_bucket
+  1 x aws_s3_bucket_public_access_block
+  1 x aws_s3_bucket_server_side_encryption_configuration
+  1 x aws_s3_bucket_versioning
+  1 x aws_s3_object
+  2 x aws_security_group
+  4 x aws_subnet
+  1 x aws_vpc
+  1 x random_id
+
+=== 4. terraform apply ===
+
+$ terraform apply -auto-approve tfplan
+[0m[1maws_route_table_association.public[1]: Creation complete after 0s [id=rtbassoc-002feaeea2fe6c3fd][0m
+[0m[1maws_route_table_association.public[0]: Creation complete after 0s [id=rtbassoc-0601ed8566ccc386f][0m
+[0m[1maws_instance.web: Still creating... [00m10s elapsed][0m[0m
+[0m[1maws_instance.web: Creation complete after 13s [id=i-0e2802a42c9036026][0m
+[0m[1m[32m
+Apply complete! Resources: 24 added, 0 changed, 0 destroyed.[0m
+[0m[1m[32m
+Outputs:
+
+[0mavailability_zones = [
+  "ap-south-1a",
+  "ap-south-1b",
+]
+bucket_name = "devops-hw-infra-assets-a4c17a4c"
+iam_role_name = "devops-hw-infra-ec2-role"
+instance_id = "i-0e2802a42c9036026"
+instance_private_ip = "10.20.1.19"
+instance_public_ip = "13.207.150.41"
+private_subnet_ids = [
+  "subnet-0fad86c44aad2e9f1",
+  "subnet-00903ec66d2410e6b",
+]
+public_subnet_ids = [
+  "subnet-002d6aaf6dc1821e4",
+  "subnet-0481e1d8cf4329ac2",
+]
+vpc_cidr = "10.20.0.0/16"
+vpc_id = "vpc-0110487ccb5702a6b"
+web_security_group_id = "sg-08d1d974db89b92b4"
+web_url = "http://13.207.150.41"
+
+=== 5. OUTPUTS ===
+
+$ terraform output
+availability_zones = [
+  "ap-south-1a",
+  "ap-south-1b",
+]
+bucket_name = "devops-hw-infra-assets-a4c17a4c"
+iam_role_name = "devops-hw-infra-ec2-role"
+instance_id = "i-0e2802a42c9036026"
+instance_private_ip = "10.20.1.19"
+instance_public_ip = "13.207.150.41"
+private_subnet_ids = [
+  "subnet-0fad86c44aad2e9f1",
+  "subnet-00903ec66d2410e6b",
+]
+public_subnet_ids = [
+  "subnet-002d6aaf6dc1821e4",
+  "subnet-0481e1d8cf4329ac2",
+]
+vpc_cidr = "10.20.0.0/16"
+vpc_id = "vpc-0110487ccb5702a6b"
+web_security_group_id = "sg-08d1d974db89b92b4"
+web_url = "http://13.207.150.41"
+
+=== 6. DEPENDENCY GRAPH — Terraform worked out the order itself ===
+$ terraform graph | grep -c '\->'
+28
+
+>> Nothing in this configuration uses depends_on except where a true
+>> ordering requirement cannot be inferred. Terraform derived the rest
+>> from references: the subnet needs the VPC, the instance needs the
+>> subnet and the security group, the IAM policy needs the bucket ARN.
+
+=== 7. VERIFY THE NETWORK WITH THE AWS CLI ===
+
+$ aws ec2 describe-vpcs --vpc-ids vpc-0110487ccb5702a6b --query 'Vpcs[].{ID:VpcId,CIDR:CidrBlock,DNS:EnableDnsHostnames}' --output table
+---------------------------------------------------
+|                  DescribeVpcs                   |
++---------------+-------+-------------------------+
+|     CIDR      |  DNS  |           ID            |
++---------------+-------+-------------------------+
+|  10.20.0.0/16 |  None |  vpc-0110487ccb5702a6b  |
++---------------+-------+-------------------------+
+
+$ aws ec2 describe-subnets --filters Name=vpc-id,Values=vpc-0110487ccb5702a6b --query 'Subnets[].{ID:SubnetId,CIDR:CidrBlock,AZ:AvailabilityZone,AutoPublicIP:MapPublicIpOnLaunch}' --output table
+------------------------------------------------------------------------------
+|                               DescribeSubnets                              |
++-------------+---------------+----------------+-----------------------------+
+|     AZ      | AutoPublicIP  |     CIDR       |             ID              |
++-------------+---------------+----------------+-----------------------------+
+|  ap-south-1b|  True         |  10.20.2.0/24  |  subnet-0481e1d8cf4329ac2   |
+|  ap-south-1b|  False        |  10.20.12.0/24 |  subnet-00903ec66d2410e6b   |
+|  ap-south-1a|  False        |  10.20.11.0/24 |  subnet-0fad86c44aad2e9f1   |
+|  ap-south-1a|  True         |  10.20.1.0/24  |  subnet-002d6aaf6dc1821e4   |
++-------------+---------------+----------------+-----------------------------+
+
+$ aws ec2 describe-route-tables --filters Name=vpc-id,Values=vpc-0110487ccb5702a6b --query 'RouteTables[].{ID:RouteTableId,Routes:Routes[].DestinationCidrBlock}' --output json
+[
+    {
+        "ID": "rtb-095b628b6e4453afd",
+        "Routes": [
+            "10.20.0.0/16"
+        ]
+    },
+    {
+        "ID": "rtb-0585720b413c88f15",
+        "Routes": [
+            "10.20.0.0/16"
+        ]
+    },
+    {
+        "ID": "rtb-0e53a31cfeedb0620",
+        "Routes": [
+            "10.20.0.0/16",
+            "0.0.0.0/0"
+        ]
+    }
+]
+>> One route table has a 0.0.0.0/0 route (public); the other has only the
+>> local VPC route (private). That is the ONLY difference between them.
+
+=== 8. VERIFY SECURITY GROUPS ===
+
+$ aws ec2 describe-security-groups --filters Name=vpc-id,Values=vpc-0110487ccb5702a6b --query 'SecurityGroups[].{Name:GroupName,Ingress:IpPermissions[].{Port:FromPort,CIDR:IpRanges[].CidrIp,SG:UserIdGroupPairs[].GroupId}}' --output json
+[
+    {
+        "Name": "default",
+        "Ingress": [
+            {
+                "Port": null,
+                "CIDR": [],
+                "SG": [
+                    "sg-06645fa0565633054"
+                ]
+            }
+        ]
+    },
+    {
+        "Name": "devops-hw-infra-app-sg",
+        "Ingress": [
+            {
+                "Port": 8080,
+                "CIDR": [],
+                "SG": [
+                    "sg-08d1d974db89b92b4"
+                ]
+            }
+        ]
+    },
+    {
+        "Name": "devops-hw-infra-web-sg",
+        "Ingress": [
+            {
+                "Port": 80,
+                "CIDR": [
+                    "0.0.0.0/0"
+                ],
+                "SG": []
+            }
+>> The app SG's source is a security GROUP ID, not a CIDR range.
+
+=== 9. VERIFY THE INSTANCE ===
+
+$ aws ec2 describe-instances --filters Name=vpc-id,Values=vpc-0110487ccb5702a6b Name=instance-state-name,Values=running --query 'Reservations[].Instances[].{ID:InstanceId,Type:InstanceType,AZ:Placement.AvailabilityZone,Private:PrivateIpAddress,Public:PublicIpAddress,IMDSv2:MetadataOptions.HttpTokens}' --output table
+------------------------------------
+|         DescribeInstances        |
++----------+-----------------------+
+|  AZ      |  ap-south-1a          |
+|  ID      |  i-0e2802a42c9036026  |
+|  IMDSv2  |  required             |
+|  Private |  10.20.1.19           |
+|  Public  |  13.207.150.41        |
+|  Type    |  t3.micro             |
++----------+-----------------------+
+>> IMDSv2 required - blocks the SSRF class that harvested instance
+>> credentials through IMDSv1.
+
+=== 10. THE WEB SERVER IS ACTUALLY SERVING ===
+waiting for cloud-init to install and start nginx...
+  HTTP 200 after 30s
+
+$ curl http://13.207.150.41/
+<!doctype html><html><head><meta charset="utf-8">
+<title>Provisioned by Terraform</title></head>
+<body style="font-family:-apple-system,sans-serif;background:#0f1117;color:#e6e9f0;
+             display:grid;place-items:center;min-height:100vh;margin:0">
+  <div style="border:1px solid #252a38;background:#171a23;border-radius:16px;padding:44px 52px">
+    <div style="display:inline-block;background:rgba(255,153,0,.14);
+                border:1px solid rgba(255,153,0,.35);color:#ff9900;padding:6px 12px;
+                border-radius:999px;font-size:12px;font-weight:600;letter-spacing:.08em;
+                text-transform:uppercase;margin-bottom:20px">AWS EC2</div>
+    <h1 style="margin:0 0 10px">Provisioned by Terraform</h1>
+    <p style="color:#8b93a7;margin:0 0 22px">VPC &rarr; Subnet &rarr; Security Group &rarr; EC2 &rarr; S3</p>
+    <table style="font-family:ui-monospace,Menlo,monospace;font-size:13.5px;color:#8b93a7">
+      <tr><td style="padding-right:20px">region</td><td style="color:#e6e9f0">ap-south-1</td></tr>
+      <tr><td>vpc cidr</td><td style="color:#e6e9f0">10.20.0.0/16</td></tr>
+      <tr><td>bucket</td><td style="color:#e6e9f0">devops-hw-infra-assets-a4c17a4c</td></tr>
+    </table>
+    <p style="margin-top:24px;padding-top:18px;border-top:1px solid #252a38;
+              color:#8b93a7;font-size:13px">Saswata Das &middot; 24BCS10248</p>
+  </div>
+</body></html>
+
+=== 11. VERIFY S3 AND THE IAM ROLE ===
+
+$ aws s3 ls s3://devops-hw-infra-assets-a4c17a4c/ --recursive
+2026-10-08 01:03:38         98 config/app.json
+$ aws s3 cp s3://devops-hw-infra-assets-a4c17a4c/config/app.json -
+{
+    "environment": "demo",
+    "project": "devops-hw-infra",
+    "region": "ap-south-1",
+    "vpc_cidr": "10.20.0.0/16"
+}
+
+$ aws s3api get-public-access-block --bucket devops-hw-infra-assets-a4c17a4c --query PublicAccessBlockConfiguration
+{
+    "BlockPublicAcls": true,
+    "IgnorePublicAcls": true,
+    "BlockPublicPolicy": true,
+    "RestrictPublicBuckets": true
+}
+
+$ aws iam get-role --role-name $(terraform output -raw iam_role_name) --query 'Role.{Name:RoleName,Trust:AssumeRolePolicyDocument.Statement[0].Principal.Service}' --output json
+{
+    "Name": "devops-hw-infra-ec2-role",
+    "Trust": "ec2.amazonaws.com"
+}
+>> The instance reaches S3 through this role. There is NO access key on
+>> the instance, and nothing to leak.
+
+=== 12. IDEMPOTENCE / DRIFT DETECTION ===
+
+$ terraform plan -detailed-exitcode 2>&1 | tail -4
+[0m[1m[32mNo changes.[0m[1m Your infrastructure matches the configuration.[0m
+
+[0mTerraform has compared your real infrastructure against your configuration
+and found no differences, so no changes are needed.
+
+=== CLEANUP (always runs, even on error) ===
+
+$ terraform destroy -auto-approve
+[0m[1maws_security_group.app: Destruction complete after 1s[0m
+[0m[1maws_iam_role_policy.s3_read: Destruction complete after 1s[0m
+[0m[1maws_subnet.private[1]: Destruction complete after 1s[0m
+[0m[1maws_subnet.private[0]: Destruction complete after 1s[0m
+[0m[1maws_route_table.private: Destruction complete after 1s[0m
+[0m[1maws_route_table.public: Destruction complete after 1s[0m
+[0m[1maws_internet_gateway.main: Destroying... [id=igw-04bb72d91292ea302][0m[0m
+[0m[1maws_instance.web: Still destroying... [id=i-0e2802a42c9036026, 00m10s elapsed][0m[0m
+[0m[1maws_internet_gateway.main: Still destroying... [id=igw-04bb72d91292ea302, 00m10s elapsed][0m[0m
+[0m[1maws_internet_gateway.main: Destruction complete after 17s[0m
+[0m[1maws_instance.web: Still destroying... [id=i-0e2802a42c9036026, 00m20s elapsed][0m[0m
+[0m[1maws_instance.web: Destruction complete after 21s[0m
+[0m[1maws_iam_instance_profile.ec2: Destroying... [id=devops-hw-infra-ec2-profile][0m[0m
+[0m[1maws_subnet.public[1]: Destroying... [id=subnet-0481e1d8cf4329ac2][0m[0m
+[0m[1maws_subnet.public[0]: Destroying... [id=subnet-002d6aaf6dc1821e4][0m[0m
+[0m[1maws_security_group.web: Destroying... [id=sg-08d1d974db89b92b4][0m[0m
+[0m[1maws_s3_bucket.assets: Destroying... [id=devops-hw-infra-assets-a4c17a4c][0m[0m
+[0m[1maws_subnet.public[0]: Destruction complete after 1s[0m
+[0m[1maws_subnet.public[1]: Destruction complete after 1s[0m
+[0m[1maws_iam_instance_profile.ec2: Destruction complete after 1s[0m
+[0m[1maws_iam_role.ec2: Destroying... [id=devops-hw-infra-ec2-role][0m[0m
+[0m[1maws_s3_bucket.assets: Destruction complete after 1s[0m
+[0m[1mrandom_id.suffix: Destroying... [id=pMF6TA][0m[0m
+[0m[1mrandom_id.suffix: Destruction complete after 0s[0m
+[0m[1maws_security_group.web: Destruction complete after 1s[0m
+[0m[1maws_vpc.main: Destroying... [id=vpc-0110487ccb5702a6b][0m[0m
+[0m[1maws_vpc.main: Destruction complete after 1s[0m
+[0m[1maws_iam_role.ec2: Destruction complete after 1s[0m
+[0m[1m[32m
+Destroy complete! Resources: 24 destroyed.[0m
