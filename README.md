@@ -24,13 +24,16 @@ in the corresponding `scripts/` directory.
 
 | Artefact | Count |
 |---|---|
-| Modules | 11 |
-| Screenshots | 185 |
-| Captured output logs | 29 files, 5,790+ lines |
-| Executable scripts | 29 |
-| Dockerfiles | 11 |
-| Kubernetes manifests | 38 |
-| Applications built and verified | 10 |
+| Modules | 20 |
+| Screenshots | 345 |
+| Captured output logs | 50 files, 10,900+ lines |
+| Executable scripts | 43 |
+| Dockerfiles | 14 |
+| Kubernetes manifests | 70 |
+| Helm charts | 3 |
+| Terraform configurations | 15 `.tf` files, applied to real AWS and destroyed |
+| GitHub Actions workflows | 4, all green |
+| Applications built and verified | 12 |
 
 ---
 
@@ -252,6 +255,90 @@ Follows the session-12 **Lab Completion Checklist** item for item.
 
 ---
 
+### 2.12 Kubernetes Storage, HPA & Probes → [`12-k8s-storage-hpa-probes/`](12-k8s-storage-hpa-probes/)
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1 | Volumes — `emptyDir`, `hostPath`, PV/PVC | Four manifests, data survival tested across container restart vs pod delete | ✔ |
+| 2 | StorageClass and dynamic provisioning | PVC bound without a hand-written PV | ✔ |
+| 3 | Horizontal Pod Autoscaler | metrics-server installed; scaled **1 → 2 → 5** under real load, then back to 1 | ✔ |
+| 4 | Liveness, readiness and startup probes | All three demonstrated, including deliberate failures | ✔ |
+| 5 | Mini-project | Stateful app with probes, HPA and persistent storage | ✔ |
+
+### 2.13 Kubernetes Troubleshooting → [`13-k8s-troubleshooting/`](13-k8s-troubleshooting/)
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1 | Nine common failure modes | Broken/fixed manifest pairs for each | ✔ |
+| 2 | `describe`, `logs`, `events`, `--previous` | Used to diagnose every fault | ✔ |
+| 3 | Mini-project | Five layered faults where fixing one exposes the next | ✔ |
+
+### 2.14 Helm → [`14-helm/`](14-helm/)
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1 | Chart structure, templates, values | `webapp/` chart with `_helpers.tpl` | ✔ |
+| 2 | Install, upgrade, rollback, history | Full lifecycle executed; rollback to rev 2 created **rev 4** | ✔ |
+| 3 | Mini-project | Second chart (`notes-chart/`) | ✔ |
+
+### 2.15 CI/CD with GitHub Actions → [`15-cicd-github-actions/`](15-cicd-github-actions/)
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1 | Workflows, jobs, steps, matrix, `needs` | [`ci.yml`](.github/workflows/ci.yml) — green run `37666736099` | ✔ |
+| 2 | Artifacts and job summaries | `upload-artifact` + `$GITHUB_STEP_SUMMARY` | ✔ |
+| 3 | Docker build and registry push | [`cd.yml`](.github/workflows/cd.yml) — green run `37667453314` | ✔ |
+| 4 | Pipeline chaining | CD triggered by `workflow_run` on CI completion | ✔ |
+
+### 2.16 DevSecOps → [`16-devsecops/`](16-devsecops/)
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1 | SAST | bandit, failing only on HIGH | ✔ |
+| 2 | SCA | pip-audit + Trivy filesystem | ✔ |
+| 3 | Secret scanning | gitleaks over full git **history** | ✔ |
+| 4 | Container image scanning | Trivy image scan before any push | ✔ |
+| 5 | Security gate | Structural `needs:` gate — all 8 jobs green | ✔ |
+
+### 2.17 Terraform & IaC → [`17-terraform-iac/`](17-terraform-iac/)
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1 | Providers, variables, resources, outputs, state | `terraform-s3-demo/` — 7 real AWS resources created and destroyed | ✔ |
+| 2 | Five AWS service write-ups | IAM, EC2, S3, VPC, DynamoDB & RDS | ✔ |
+
+### 2.18 Cloud & Terraform in Action → [`18-cloud-terraform/`](18-cloud-terraform/)
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1 | End-to-end AWS infrastructure | VPC, subnets, IGW, routes, SG, IAM, EC2, S3 — **24 real resources** | ✔ |
+| 2 | Dependencies and outputs | Implicit graph; EC2 served **HTTP 200** over the public internet | ✔ |
+| 3 | `plan` / `apply` / `destroy` | All executed; teardown from a `trap`, then swept | ✔ |
+
+### 2.19 Monitoring, Observability & GitOps → [`19-monitoring-observability-gitops/`](19-monitoring-observability-gitops/)
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1 | Metrics, logs, alerts, CPU/memory | kube-prometheus-stack, queried over its HTTP API | ✔ |
+| 2 | The three pillars of observability | Documented with tooling per pillar | ✔ |
+| 3 | GitOps | Argo CD; alert went **inactive → pending → firing**, drift reverted in 4s | ✔ |
+
+### 2.20 Final DevOps Project & Troubleshooting → [`20-final-devops-project/`](20-final-devops-project/)
+
+The capstone: one application through every stage of the course.
+
+| # | Requirement | Deliverable | Status |
+|---|---|---|---|
+| 1 | Application → Git → CI → build/test → security → image → registry | [Green pipeline](https://github.com/techSaswata/devops-scaler/actions/runs/37697610521), image published to GHCR | ✔ |
+| 2 | Kubernetes: Deployment, Service, ConfigMap, Secret, Ingress, HPA, probes, storage | All eight, applied and verified from inside the cluster | ✔ |
+| 3 | Helm | Chart with three values files and a template-time guard against an RWO + HPA deadlock | ✔ |
+| 4 | Terraform infrastructure | VPC + S3 + ECR — 13 resources applied to real AWS, drift detected, destroyed, swept | ✔ |
+| 5 | DevSecOps: SAST, SCA, secret scanning, image scanning, gates | All five, with the gate as a structural `needs:` | ✔ |
+| 6 | Monitoring and GitOps | Alert fired at t+180s; Argo CD reverted a manual scale in ~2s | ✔ |
+| 7 | **Final troubleshooting challenge** | Six planted faults — identified, investigated, root-caused, fixed, verified and documented | ✔ |
+
+---
+
 ## 3. Test environment
 
 | Component | Version |
@@ -339,9 +426,39 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/cont
 ./11-k8s-ingress-configmaps-secrets/scripts/02-ingress.sh
 ./11-k8s-ingress-configmaps-secrets/scripts/03-config-updates.sh
 
+# Module 12 - Storage, HPA and Probes
+./12-k8s-storage-hpa-probes/scripts/01-volumes-hpa-probes.sh
+
+# Module 13 - Troubleshooting
+./13-k8s-troubleshooting/scripts/01-troubleshooting.sh
+
+# Module 14 - Helm
+./14-helm/scripts/01-helm.sh
+
+# ---- CI/CD and security (modules 15-16) ----
+# These run on GitHub's runners, not locally. The committed logs are the run
+# output; the workflows themselves live in .github/workflows/.
+
+# ---- AWS (modules 17-18, 20) ----
+# These create REAL billable resources. Each script destroys what it made from a
+# `trap ... EXIT` and then verifies the deletion against the AWS API, but read
+# them before running them, and check the region and the credentials in use.
+./17-terraform-iac/scripts/01-terraform-s3.sh
+./18-cloud-terraform/scripts/01-infrastructure.sh
+
+# Module 19 - Monitoring, Observability and GitOps
+./19-monitoring-observability-gitops/scripts/01-monitoring.sh
+./19-monitoring-observability-gitops/scripts/02-gitops.sh
+
+# Module 20 - Final project (run in order; 05 touches real AWS)
+./20-final-devops-project/scripts/01-deploy.sh
+./20-final-devops-project/scripts/02-helm.sh
+./20-final-devops-project/scripts/03-monitoring-gitops.sh
+./20-final-devops-project/scripts/04-troubleshooting.sh
+./20-final-devops-project/scripts/05-terraform.sh
+
 # Tear down
-kind delete cluster --name devops-hw     # the Kubernetes cluster
-./cleanup.sh                             # all Docker demo containers and images
+./cleanup.sh                             # containers, images, and the cluster
 ```
 
 Demo containers are intentionally left running after each module so the applications can be
@@ -432,6 +549,18 @@ Issues encountered during preparation, retained here as part of the engineering 
 | A `kubectl rollout restart` appeared not to pick up the new ConfigMap value | `rollout status` returns while old pods are still `Terminating`, and a terminating pod can still be in Service endpoints | Wait for every old pod to disappear before testing |
 | `nslookup` reported `NXDOMAIN` for Service short names that plainly worked | busybox's `nslookup` applet does not walk the `resolv.conf` `search` list | Prove resolution by connecting, which uses `getaddrinfo()` |
 | A liveness probe restarted a container that was perfectly healthy | The probe pointed at a path returning 404 | Kept deliberately — it is the clearest demonstration of why liveness probes should be generous and readiness probes strict |
+| `metrics-server` never became `Ready`, so the HPA read `<unknown>` | kind's kubelet serves a self-signed certificate | `--kubelet-insecure-tls`, scoped to this local cluster |
+| `terraform destroy` reported success while a real S3 bucket survived | The output was piped into `head`, which closed the pipe and killed Terraform mid-run with SIGPIPE | Never pipe Terraform into anything; capture in full, trim afterwards, then verify deletion against the AWS API |
+| A published image could not be pulled on arm64 | The build was amd64-only | Added QEMU + `platforms: linux/amd64,linux/arm64` |
+| `docker save` → `ctr import` failed with `content digest … not found` | A multi-arch buildx image has incomplete per-platform content in a `save` archive | Build single-arch for the local cluster; keep multi-arch for the published image |
+| Nodes reported an image as imported that was not there | The script trusted the import command's exit code | Read the state back with `crictl images` on each node |
+| An Ingress existed, was listed, and returned nothing, with a blank `ADDRESS` | ingress-nginx was not installed — an Ingress with no controller is inert | Install the controller, wait for it, and poll the route before asserting |
+| A readiness poll "succeeded" against an nginx **503** page | The loop waited for non-empty output, and an error page is non-empty | Poll for HTTP **200** |
+| A green security pipeline turned red with no code change, dying in 0.36s with no output | gitleaks was resolved as "latest" from the rate-limited anonymous GitHub API, and 8.30 had removed the `detect` subcommand | Pin the version, `curl -sSfL` so a 404 fails loudly, and use `gitleaks git` |
+| `--redact` printed the secret and hid the label | The custom rule captured the label group, so gitleaks treated `PASSWORD` as the secret | Non-capturing group for the label, `secretGroup = 1` for the value; re-verified against a real credential-shaped string |
+| GHCR rejected the push after every security job had passed | `github.repository` contains a capital letter and OCI names must be lowercase | Build tags with `docker/metadata-action`, which lowercases them |
+| A Helm chart shipped a ReadWriteOnce PVC together with an HPA scaling to 4 | RWO is a per-node mount, so extra replicas can never attach it — it would fail under exactly the load the HPA exists for | `_validate.tpl` rejects the combination at template time |
+| An AWS "leftover" that did not exist | The Resource Groups Tagging API is an index and retains entries for terminated resources | Resolve every ARN against the service that owns it before believing it |
 
 Several documented claims were also corrected against the captured output rather than left
 to stand: the container MTU is 65535 (a virtual `veth` interface, not the 1500 of physical
@@ -464,7 +593,17 @@ devops-scaler/
 ├── 08-kubernetes-fundamentals/
 ├── 09-k8s-pods-replicasets-deployments/
 ├── 10-k8s-networking-services/
-└── 11-k8s-ingress-configmaps-secrets/
+├── 11-k8s-ingress-configmaps-secrets/
+├── 12-k8s-storage-hpa-probes/
+├── 13-k8s-troubleshooting/
+├── 14-helm/
+├── 15-cicd-github-actions/
+├── 16-devsecops/
+├── 17-terraform-iac/
+├── 18-cloud-terraform/
+├── 19-monitoring-observability-gitops/
+├── 20-final-devops-project/      The capstone
+└── .github/workflows/            CI, CD, DevSecOps and the final pipeline
 ```
 
 Each module directory follows the same layout:
@@ -476,5 +615,17 @@ Each module directory follows the same layout:
 | `outputs/` | Raw captured `.txt` logs, committed so screenshots can be verified against source |
 | `screenshots/` | The PNG files embedded in the module README |
 | `lab/` | Supporting Dockerfiles, where a purpose-built environment was required |
-| `manifests/` | Kubernetes YAML applied to the cluster (modules 08–11) |
+| `manifests/` | Kubernetes YAML applied to the cluster (modules 08–13) |
 | `cluster/` | The kind cluster definition (module 08 only) |
+
+Later modules add directories as the subject requires:
+
+| Path | Contents | Modules |
+|---|---|---|
+| `helm/` | Helm charts | 14, 20 |
+| `terraform/`, `infrastructure/` | Terraform configurations | 17, 18, 20 |
+| `security/` | Threat model, scanner configuration | 16, 20 |
+| `monitoring/` | ServiceMonitor, PrometheusRule, stack values | 19, 20 |
+| `gitops/` | Argo CD Application and the manifests it syncs | 19, 20 |
+| `application/`, `docker/`, `kubernetes/` | The capstone's app, image and manifests | 20 |
+| `troubleshooting/` | The six planted faults | 20 |
