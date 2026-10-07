@@ -1,0 +1,207 @@
+
+=== 1. UNIT TESTS ===
+
+$ /tmp/cicdvenv/bin/python -m pytest tests/ -v --tb=short 2>&1 | tail -14
+platform darwin -- Python 3.14.5, pytest-8.3.3, pluggy-1.6.0 -- /private/tmp/cicdvenv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/application
+plugins: cov-5.0.0, platformdirs-4.12.3
+collecting ... collected 6 items
+
+tests/test_app.py::test_tasks_start_empty PASSED                         [ 16%]
+tests/test_app.py::test_add_task PASSED                                  [ 33%]
+tests/test_app.py::test_add_task_persists PASSED                         [ 50%]
+tests/test_app.py::test_add_task_rejects_empty_title PASSED              [ 66%]
+tests/test_app.py::test_save_is_atomic PASSED                            [ 83%]
+tests/test_app.py::test_metrics_format PASSED                            [100%]
+
+============================== 6 passed in 0.03s ===============================
+
+=== 2. SAST ===
+
+$ /tmp/cicdvenv/bin/bandit -r src/ -f screen 2>&1 | grep -E 'Issue:|Severity:|No issues|High:|Medium:' | head -8
+	No issues identified.
+		Medium: 0
+		High: 0
+		Medium: 0
+		High: 0
+
+=== 3. BUILD THE IMAGE ===
+
+$ docker build -q --platform linux/arm64 -t task-api:1.0.0 -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/docker/Dockerfile /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/application
+sha256:477ed02f5996f1677cb06af752cd75fc99a032fe1c64239f39cb26e1a48c7fc1
+
+$ docker images task-api --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}'
+REPOSITORY   TAG       SIZE
+task-api     1.0.0     204MB
+
+$ docker run --rm task-api:1.0.0 id
+uid=10001(appuser) gid=10001(appuser) groups=10001(appuser)
+>> uid 10001, not root.
+
+=== 4. SCAN THE IMAGE ===
+$ trivy image --severity HIGH,CRITICAL task-api:1.0.0
+
+┌──────────────────────────────────────────────────────────────────────┬────────────┬─────────────────┐
+│                                Target                                │    Type    │ Vulnerabilities │
+├──────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ task-api:1.0.0 (debian 13.7)                                         │   debian   │        0        │
+├──────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.12/site-packages/pip-25.0.1.dist-info/METADATA │ python-pkg │        0        │
+└──────────────────────────────────────────────────────────────────────┴────────────┴─────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+=== 5. LOAD THE IMAGE INTO THE CLUSTER ===
+  devops-hw-control-plane    imported
+  devops-hw-worker           imported
+  devops-hw-worker2          imported
+--- verify it is really present, rather than assuming ---
+  devops-hw-worker           present
+  devops-hw-worker2          present
+
+=== 6. DEPLOY — namespace, config, secret, storage ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/kubernetes/00-namespace.yaml -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/kubernetes/01-config.yaml -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/kubernetes/03-storage.yaml
+namespace/finalproject created
+configmap/task-api-config created
+persistentvolumeclaim/task-api-data created
+
+--- the Secret is created OUT OF BAND, never from a committed file ---
+$ kubectl create secret generic task-api-secret --from-literal=...
+
+$ kubectl get secret task-api-secret -n finalproject
+NAME              TYPE     DATA   AGE
+task-api-secret   Opaque   2      1s
+
+=== 7. DEPLOY — workload, service, ingress, HPA ===
+
+$ kubectl apply -f /tmp/fp-deploy.yaml -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/kubernetes/05-service.yaml -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/kubernetes/06-ingress.yaml -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/kubernetes/07-hpa.yaml
+deployment.apps/task-api created
+service/task-api created
+ingress.networking.k8s.io/task-api created
+horizontalpodautoscaler.autoscaling/task-api created
+
+$ kubectl rollout status deployment/task-api -n finalproject --timeout=300s
+Waiting for deployment "task-api" rollout to finish: 0 of 1 updated replicas are available...
+deployment "task-api" successfully rolled out
+
+$ kubectl get all -n finalproject
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/task-api-769d77f66c-fzq2s   1/1     Running   0          6s
+
+NAME               TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+service/task-api   ClusterIP   10.96.222.165   <none>        80/TCP    6s
+
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/task-api   1/1     1            1           6s
+
+NAME                                  DESIRED   CURRENT   READY   AGE
+replicaset.apps/task-api-769d77f66c   1         1         1       6s
+
+NAME                                           REFERENCE             TARGETS              MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/task-api   Deployment/task-api   cpu: <unknown>/60%   1         4         1          6s
+
+$ kubectl get pvc,ingress,hpa -n finalproject
+NAME                                  STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/task-api-data   Bound    pvc-63b0e34f-3381-4a13-94a8-18dfeeeb61aa   128Mi      RWO            standard       <unset>                 7s
+
+NAME                                 CLASS   HOSTS           ADDRESS   PORTS   AGE
+ingress.networking.k8s.io/task-api   nginx   taskapi.local             80      6s
+
+NAME                                           REFERENCE             TARGETS              MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/task-api   Deployment/task-api   cpu: <unknown>/60%   1         4         1          6s
+
+=== 8. THE APPLICATION ACTUALLY WORKS ===
+$ GET /       (config from the ConfigMap, secrets from the Secret)
+{"app": "task-api", "version": "1.0.0", "environment": "production", "hostname": "task-api-769d77f66c-fzq2s", "tasks": 0, "secrets_loaded": true}
+
+$ GET /health
+{"status": "healthy"}
+$ GET /ready   (checks the mounted volume is writable)
+{"status": "ready"}
+
+$ POST /tasks  x3
+{"id": 1, "title": "write the final README"}
+{"id": 2, "title": "verify the pipeline"}
+{"id": 3, "title": "destroy the AWS resources"}
+
+$ GET /tasks
+{"tasks": [{"id": 1, "title": "write the final README"}, {"id": 2, "title": "verify the pipeline"}, {"id": 3, "title": "destroy the AWS resources"}]}
+
+=== 9. PERSISTENCE — data survives a pod restart ===
+$ kubectl delete pod task-api-769d77f66c-fzq2s   (the PVC should preserve the tasks)
+
+$ kubectl rollout status deployment/task-api -n finalproject --timeout=300s
+deployment "task-api" successfully rolled out
+new pod: task-api-769d77f66c-pknzm (was task-api-769d77f66c-fzq2s)
+$ GET /tasks  on the NEW pod
+{"tasks": [{"id": 1, "title": "write the final README"}, {"id": 2, "title": "verify the pipeline"}, {"id": 3, "title": "destroy the AWS resources"}]}
+>> Same three tasks. A different pod re-attached to the same PVC.
+
+=== 10. SECURITY CONTEXT IS REALLY APPLIED ===
+
+$ kubectl get pod task-api-769d77f66c-pknzm -n finalproject -o jsonpath='runAsNonRoot={.spec.securityContext.runAsNonRoot}  uid={.spec.securityContext.runAsUser}  readOnlyRootFS={.spec.containers[0].securityContext.readOnlyRootFilesystem}  privEsc={.spec.containers[0].securityContext.allowPrivilegeEscalation}  caps={.spec.containers[0].securityContext.capabilities.drop}{"\n"}'
+runAsNonRoot=true  uid=10001  readOnlyRootFS=true  privEsc=false  caps=["ALL"]
+
+$ kubectl exec task-api-769d77f66c-pknzm -n finalproject -- id
+uid=10001(appuser) gid=10001(appuser) groups=10001(appuser)
+$ kubectl exec task-api-769d77f66c-pknzm -- touch /forbidden   (readOnlyRootFilesystem)
+touch: cannot touch '/forbidden': Read-only file system
+command terminated with exit code 1
+>> Read-only root rejected the write, while /data stayed writable.
+
+=== 11. INGRESS ===
+ingress-nginx controller already present
+
+$ kubectl wait -n ingress-nginx --for=condition=ready pod -l app.kubernetes.io/component=controller --timeout=300s
+pod/ingress-nginx-controller-75d6dc8f6b-vkf6j condition met
+
+$ kubectl get pods -n ingress-nginx
+NAME                                        READY   STATUS    RESTARTS   AGE
+ingress-nginx-controller-75d6dc8f6b-vkf6j   1/1     Running   0          4m44s
+  waiting for taskapi.local to answer  answered after ~2s
+
+$ kubectl get ingress -n finalproject
+NAME       CLASS   HOSTS           ADDRESS     PORTS   AGE
+task-api   nginx   taskapi.local   localhost   80      44s
+>> ADDRESS is populated now; it was blank while no controller was running.
+
+$ curl -H 'Host: taskapi.local' http://localhost/
+{"app": "task-api", "version": "1.0.0", "environment": "production", "hostname": "task-api-769d77f66c-pknzm", "tasks": 3, "secrets_loaded": true}
+$ curl -H 'Host: taskapi.local' http://localhost/health
+{"status": "healthy"}
+$ curl -H 'Host: taskapi.local' http://localhost/tasks
+{"tasks": [{"id": 1, "title": "write the final README"}, {"id": 2, "title": "verify the pipeline"}, {"id": 3, "title": "destroy the AWS resources"}]}
+--- host-based routing really is host-based: an unmatched Host must NOT
+--- reach the app. If this returned the JSON, the rule would be a no-op.
+$ curl -o /dev/null -w 'HTTP %{http_code}' -H 'Host: nope.local' http://localhost/
+HTTP 404
+
+=== 12. MONITORING WIRED IN ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/monitoring/servicemonitor.yaml -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/monitoring/alerts.yaml
+servicemonitor.monitoring.coreos.com/task-api created
+prometheusrule.monitoring.coreos.com/task-api-alerts created
+
+$ kubectl get servicemonitor,prometheusrule -n finalproject
+NAME                                            AGE
+servicemonitor.monitoring.coreos.com/task-api   0s
+
+NAME                                                   AGE
+prometheusrule.monitoring.coreos.com/task-api-alerts   0s
+$ GET /metrics
+# HELP taskapi_requests_total Total HTTP requests.
+# TYPE taskapi_requests_total counter
+taskapi_requests_total 15
+# HELP taskapi_errors_total Total error responses.
+# TYPE taskapi_errors_total counter
+taskapi_errors_total 0
+# HELP taskapi_tasks_created_total Tasks created.
+# TYPE taskapi_tasks_created_total counter
+taskapi_tasks_created_total 0
+# HELP taskapi_uptime_seconds Seconds since start.
+# TYPE taskapi_uptime_seconds counter
+taskapi_uptime_seconds 31.4

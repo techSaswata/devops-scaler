@@ -1,0 +1,32 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: task-api-alerts
+  namespace: finalproject
+  labels: { release: monitoring }
+spec:
+  groups:
+    - name: task-api
+      rules:
+        - alert: TaskApiDown
+          expr: up{job="task-api"} == 0
+          for: 1m
+          labels: { severity: critical }
+          annotations:
+            summary: "Task API is not scrapeable"
+
+        - alert: TaskApiHighErrorRate
+          expr: |
+            sum(rate(taskapi_errors_total[5m]))
+              / sum(rate(taskapi_requests_total[5m])) > 0.10
+          for: 2m
+          labels: { severity: warning }
+          annotations:
+            summary: "Task API error rate above 10%"
+
+        - alert: TaskApiPodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="finalproject"}[15m]) > 3
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "Task API pod restarting repeatedly"

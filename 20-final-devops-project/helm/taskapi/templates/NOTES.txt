@@ -1,0 +1,8 @@
+{{ .Chart.Name }} release "{{ .Release.Name }}" deployed to {{ .Release.Namespace }}.
+
+  Revision:    {{ .Release.Revision }}
+  Environment: {{ .Values.config.environment }}
+  Persistence: {{ .Values.persistence.enabled }}
+  Autoscaling: {{ .Values.autoscaling.enabled }} ({{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }})
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "taskapi.fullname" . }} 8080:{{ .Values.service.port }}

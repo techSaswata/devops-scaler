@@ -1,0 +1,2 @@
+# The application uses only the Python standard library, so there is no runtime
+# dependency to pin - and therefore no third-party CVE surface at runtime.

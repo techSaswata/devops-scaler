@@ -1,0 +1,146 @@
+# ============================================================================
+#  FINAL PROJECT PIPELINE — Session 21
+#
+#  Code → Build → Test → SAST → SCA → Secret Scan → Docker Build
+#       → Image Scan → SECURITY GATE → Push → GitOps deploy
+#
+#  This file is the DELIVERABLE. It is not registered as an active workflow in
+#  this repository, because modules 15 and 16 already run live pipelines on
+#  every push and a third would duplicate them for no additional evidence.
+#  The same stages are executed locally by scripts/03-pipeline.sh.
+# ============================================================================
+name: Final Project
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['20-final-devops-project/**']
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/task-api
+
+jobs:
+  test:
+    name: Build and unit test
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: 20-final-devops-project/application } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12', cache: pip }
+      - run: pip install -r requirements-dev.txt
+      - run: pytest tests/ -v --cov=src --cov-report=term --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        with: { name: coverage, path: 20-final-devops-project/application/coverage.xml }
+
+  sast:
+    name: SAST
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: 20-final-devops-project/application } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install bandit
+      - run: bandit -r src/ -f screen || true
+      - name: Fail on HIGH findings
+        run: |
+          bandit -r src/ -f json -o report.json || true
+          HIGH=$(python -c "import json;d=json.load(open('report.json'));print(sum(1 for r in d['results'] if r['issue_severity']=='HIGH'))")
+          echo "HIGH findings: $HIGH"; [ "$HIGH" -eq 0 ]
+
+  sca:
+    name: SCA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: 20-final-devops-project/application
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+  secret-scan:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: gitleaks
+        run: |
+          VER=$(curl -sL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep -oP '"tag_name": "v\K[^"]+')
+          curl -sL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" | tar xz gitleaks
+          ./gitleaks detect --source 20-final-devops-project --redact --no-banner -v
+
+  image-scan:
+    name: Docker build and image scan
+    runs-on: ubuntu-latest
+    needs: [test, sast]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (not pushed - must pass the scan first)
+        uses: docker/build-push-action@v6
+        with:
+          context: 20-final-devops-project/application
+          file: 20-final-devops-project/docker/Dockerfile
+          push: false
+          load: true
+          tags: task-api:scan
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: task-api:scan
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+  security-gate:
+    name: Security gate
+    runs-on: ubuntu-latest
+    needs: [test, sast, sca, secret-scan, image-scan]
+    steps:
+      - run: echo "All security controls passed." >> $GITHUB_STEP_SUMMARY
+
+  push:
+    name: Push image
+    runs-on: ubuntu-latest
+    needs: [security-gate]        # ← THE GATE
+    permissions: { contents: read, packages: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: 20-final-devops-project/application
+          file: 20-final-devops-project/docker/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  gitops-update:
+    name: Update the GitOps manifest
+    runs-on: ubuntu-latest
+    needs: [push]
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump the image tag in git
+        run: |
+          cd 20-final-devops-project/gitops/manifests
+          sed -i "s|image: .*task-api:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}|" deployment.yaml
+          echo "--- the pipeline's last step is a COMMIT, not a kubectl apply ---"
+          git diff
+      # Committing here would make Argo CD pull the new tag and deploy it.
+      # That is the GitOps handoff: CI never touches the cluster.

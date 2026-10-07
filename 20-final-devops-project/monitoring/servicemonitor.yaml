@@ -1,0 +1,14 @@
+# Tells the Prometheus Operator to scrape the Task API.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: task-api
+  namespace: finalproject
+  labels: { release: monitoring }
+spec:
+  selector:
+    matchLabels: { app: task-api }
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

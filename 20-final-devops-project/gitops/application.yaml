@@ -1,0 +1,27 @@
+# Argo CD Application for the final project. Git is the source of truth; the
+# agent inside the cluster pulls and reconciles continuously -- nothing is
+# pushed to the cluster from CI, and no human runs `kubectl apply`.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: task-api
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/techSaswata/devops-scaler.git
+    targetRevision: main
+    path: 20-final-devops-project/gitops/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    # A namespace of its own, NOT the `finalproject` namespace the kubectl and
+    # Helm demos use. Two controllers owning one Deployment is an anti-pattern:
+    # Argo CD would revert whatever `kubectl apply` had just done, and selfHeal
+    # would make its version permanent. See gitops/manifests/README.md.
+    namespace: finalproject-gitops
+  syncPolicy:
+    automated:
+      prune: true      # delete what git no longer declares
+      selfHeal: true   # revert manual kubectl changes
+    syncOptions:
+      - CreateNamespace=true

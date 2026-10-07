@@ -1,0 +1,17 @@
+# The stateless, horizontally scalable configuration.
+#
+# Dropping the ReadWriteOnce volume is what MAKES scaling legal: with no
+# per-node mount there is nothing to contend over, so the HPA is free to add
+# replicas. Tasks then live only for the life of a pod -- the honest trade, and
+# the reason the default values file keeps persistence instead.
+persistence:
+  enabled: false
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 60
+
+ingress:
+  host: taskapi-scaled.local

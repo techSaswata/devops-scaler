@@ -1,0 +1,239 @@
+
+=== 1. LINT BOTH SHIPPED CONFIGURATIONS ===
+
+$ helm lint /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/helm/taskapi
+==> Linting /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/helm/taskapi
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+
+$ helm lint /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/helm/taskapi -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/helm/taskapi/values-scaled.yaml
+==> Linting /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/helm/taskapi
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+
+=== 2. THE CHART REFUSES AN IMPOSSIBLE COMBINATION ===
+$ helm template x /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/helm/taskapi --set persistence.enabled=true --set autoscaling.enabled=true --set autoscaling.maxReplicas=4
+Error: execution error at (taskapi/templates/deployment.yaml:1:4): invalid values: persistence.enabled=true needs a single replica, but autoscaling.maxReplicas=4. A ReadWriteOnce volume cannot be mounted by pods on more than one node. Either set persistence.enabled=false (see values-scaled.yaml) or set autoscaling.maxReplicas=1.
+
+Use --debug flag to render out invalid YAML
+>> Rejected before anything reached the cluster.
+
+=== 3. WHAT EACH VALUES FILE RENDERS ===
+$ helm template x $C                          # defaults: stateful, 1 replica
+  ConfigMap
+  PersistentVolumeClaim
+  Service
+  Deployment
+  Ingress
+
+$ helm template x $C -f values-scaled.yaml    # stateless, autoscaled
+  ConfigMap
+  Service
+  Deployment
+  HorizontalPodAutoscaler
+  Ingress
+>> PVC appears in one, HorizontalPodAutoscaler in the other. Never both.
+
+=== 4. VALIDATE THE RENDERED YAML AGAINST THE REAL API SERVER ===
+
+$ kubectl apply --dry-run=server -n helm-dryrun -f /tmp/helm-rendered.yaml
+configmap/x-taskapi created (server dry run)
+persistentvolumeclaim/x-taskapi-data created (server dry run)
+service/x-taskapi created (server dry run)
+deployment.apps/x-taskapi created (server dry run)
+Error from server (BadRequest): error when creating "/tmp/helm-rendered.yaml": admission webhook "validate.nginx.ingress.kubernetes.io" denied the request: host "taskapi-helm.local" and path "/" is already defined in ingress finalproject-helm/taskapi-taskapi
+>> Accepted by the API server, and nothing was persisted.
+
+=== 5. INSTALL ===
+--- the Secret the chart REFERENCES but does not contain ---
+$ kubectl create secret generic task-api-secret --from-literal=...
+
+
+$ helm install taskapi /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/helm/taskapi -n finalproject-helm --wait --timeout 5m
+NAME: taskapi
+LAST DEPLOYED: Thu Oct  8 03:45:40 2026
+NAMESPACE: finalproject-helm
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+NOTES:
+taskapi release "taskapi" deployed to finalproject-helm.
+
+  Revision:    1
+  Environment: production
+  Persistence: true
+  Autoscaling: false (1-1)
+
+  kubectl -n finalproject-helm port-forward svc/taskapi-taskapi 8080:80
+
+$ helm list -n finalproject-helm
+NAME   	NAMESPACE        	REVISION	UPDATED                            	STATUS  	CHART        	APP VERSION
+taskapi	finalproject-helm	1       	2026-10-08 03:45:40.94768 +0530 IST	deployed	taskapi-1.0.0	1.0.0      
+
+$ kubectl get all,pvc,ingress -n finalproject-helm
+NAME                                   READY   STATUS    RESTARTS   AGE
+pod/taskapi-taskapi-7c7bd87766-t6cjh   1/1     Running   0          8s
+
+NAME                      TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)   AGE
+service/taskapi-taskapi   ClusterIP   10.96.70.87   <none>        80/TCP    8s
+
+NAME                              READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/taskapi-taskapi   1/1     1            1           8s
+
+NAME                                         DESIRED   CURRENT   READY   AGE
+replicaset.apps/taskapi-taskapi-7c7bd87766   1         1         1       8s
+
+NAME                                         STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/taskapi-taskapi-data   Bound    pvc-df930b8b-391e-42cb-8f08-fd14844b741d   128Mi      RWO            standard       <unset>                 8s
+
+NAME                                        CLASS   HOSTS                ADDRESS   PORTS   AGE
+ingress.networking.k8s.io/taskapi-taskapi   nginx   taskapi-helm.local             80      8s
+
+=== 6. THE RELEASE SERVES TRAFFIC THROUGH ITS OWN INGRESS HOST ===
+  waiting for taskapi-helm.local/ . HTTP 200 after ~4s
+$ curl -H 'Host: taskapi-helm.local' http://localhost/
+{"app": "task-api", "version": "1.0.0", "environment": "production", "hostname": "taskapi-taskapi-7c7bd87766-t6cjh", "tasks": 0, "secrets_loaded": true}
+>> environment=production, LOG_LEVEL from the chart's ConfigMap.
+
+=== 7. UPGRADE - a VALUES-ONLY change must still roll the pods ===
+pod before:      taskapi-taskapi-7c7bd87766-t6cjh
+checksum before: 7464589400262339...
+
+$ helm upgrade taskapi /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/helm/taskapi -n finalproject-helm -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/helm/taskapi/values-staging.yaml --wait --timeout 5m
+Release "taskapi" has been upgraded. Happy Helming!
+NAME: taskapi
+LAST DEPLOYED: Thu Oct  8 03:45:51 2026
+NAMESPACE: finalproject-helm
+STATUS: deployed
+REVISION: 2
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+taskapi release "taskapi" deployed to finalproject-helm.
+
+  Revision:    2
+  Environment: staging
+  Persistence: true
+  Autoscaling: false (1-1)
+
+  kubectl -n finalproject-helm port-forward svc/taskapi-taskapi 8080:80
+
+pod after:       taskapi-taskapi-56dd684cf9-t87s5
+checksum after:  006884cfa823e500...
+>> Checksum changed, so the pod was replaced.
+
+$ kubectl get cm taskapi-taskapi -n finalproject-helm -o jsonpath='{.data}{"\n"}'
+{"APP_VERSION":"1.0.0","ENVIRONMENT":"staging","FEATURE_METRICS":"true","LOG_LEVEL":"DEBUG"}
+  waiting for taskapi-staging.local/ . HTTP 200 after ~4s
+$ curl -H 'Host: taskapi-staging.local' http://localhost/
+{"app": "task-api", "version": "1.0.0", "environment": "staging", "hostname": "taskapi-taskapi-56dd684cf9-t87s5", "tasks": 0, "secrets_loaded": true}
+>> environment=staging now. The RUNNING pod picked up the new values.
+
+=== 8. UPGRADE AGAIN - to the stateless, autoscaled configuration ===
+
+$ helm upgrade taskapi /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/helm/taskapi -n finalproject-helm -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/helm/taskapi/values-scaled.yaml --wait --timeout 5m
+Release "taskapi" has been upgraded. Happy Helming!
+NAME: taskapi
+LAST DEPLOYED: Thu Oct  8 03:46:28 2026
+NAMESPACE: finalproject-helm
+STATUS: deployed
+REVISION: 3
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+taskapi release "taskapi" deployed to finalproject-helm.
+
+  Revision:    3
+  Environment: production
+  Persistence: false
+  Autoscaling: true (2-4)
+
+  kubectl -n finalproject-helm port-forward svc/taskapi-taskapi 8080:80
+
+$ kubectl get deploy,hpa,pvc -n finalproject-helm
+NAME                              READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/taskapi-taskapi   2/2     2            2           83s
+
+NAME                                                  REFERENCE                    TARGETS              MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/taskapi-taskapi   Deployment/taskapi-taskapi   cpu: <unknown>/60%   2         4         2          36s
+>> replicas 2 and an HPA; the PVC is gone because this configuration is stateless.
+
+=== 9. HISTORY - every revision is retained ===
+
+$ helm history taskapi -n finalproject-helm
+REVISION	UPDATED                 	STATUS    	CHART        	APP VERSION	DESCRIPTION     
+1       	Thu Oct  8 03:45:40 2026	superseded	taskapi-1.0.0	1.0.0      	Install complete
+2       	Thu Oct  8 03:45:51 2026	superseded	taskapi-1.0.0	1.0.0      	Upgrade complete
+3       	Thu Oct  8 03:46:28 2026	deployed  	taskapi-1.0.0	1.0.0      	Upgrade complete
+
+=== 10. ROLLBACK ===
+$ helm rollback taskapi 1    (back to the original production values)
+
+$ helm rollback taskapi 1 -n finalproject-helm --wait --timeout 5m
+Rollback was a success! Happy Helming!
+
+$ helm history taskapi -n finalproject-helm
+REVISION	UPDATED                 	STATUS    	CHART        	APP VERSION	DESCRIPTION     
+1       	Thu Oct  8 03:45:40 2026	superseded	taskapi-1.0.0	1.0.0      	Install complete
+2       	Thu Oct  8 03:45:51 2026	superseded	taskapi-1.0.0	1.0.0      	Upgrade complete
+3       	Thu Oct  8 03:46:28 2026	superseded	taskapi-1.0.0	1.0.0      	Upgrade complete
+4       	Thu Oct  8 03:47:04 2026	deployed  	taskapi-1.0.0	1.0.0      	Rollback to 1   
+>> Rollback does NOT rewind the revision counter: it appends a NEW
+>> revision whose contents equal revision 1. The history stays append-only.
+
+$ kubectl get deploy,hpa,pvc -n finalproject-helm
+NAME                              READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/taskapi-taskapi   1/1     1            1           2m2s
+
+NAME                                         STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/taskapi-taskapi-data   Bound    pvc-cf4ea69e-e0bb-4dd1-bb83-4d2d6d4ab642   128Mi      RWO            standard       <unset>                 39s
+  waiting for taskapi-helm.local/ .. HTTP 200 after ~6s
+$ curl -H 'Host: taskapi-helm.local' http://localhost/
+{"app": "task-api", "version": "1.0.0", "environment": "production", "hostname": "taskapi-taskapi-7c7bd87766-g6sl2", "tasks": 0, "secrets_loaded": true}
+>> Back to production, HPA removed, and a PVC exists again.
+>> But note the PVC's AGE: it is a BRAND NEW volume, not the original.
+>> Revision 3 set persistence.enabled=false, which DELETED the old PVC
+>> and its data. Rollback restores the DECLARATION, not the bytes --
+>> "tasks": 0 above is the proof. Helm has no idea what was inside.
+
+=== 11. WHAT HELM RECORDS IN THE CLUSTER ===
+
+$ helm get values taskapi -n finalproject-helm
+USER-SUPPLIED VALUES:
+null
+>> "null" is correct, not an error: the live revision is the rollback to
+>> revision 1, and revision 1 was installed with no -f and no --set, so
+>> there are no user-supplied values. Everything comes from values.yaml.
+
+$ helm get values taskapi -n finalproject-helm --all | head -20
+COMPUTED VALUES:
+autoscaling:
+  enabled: false
+  maxReplicas: 1
+  minReplicas: 1
+  targetCPUUtilizationPercentage: 60
+config:
+  environment: production
+  featureMetrics: true
+  logLevel: INFO
+existingSecret: task-api-secret
+image:
+  pullPolicy: IfNotPresent
+  repository: task-api
+  tag: 1.0.0
+ingress:
+  className: nginx
+  enabled: true
+  host: taskapi-helm.local
+persistence:
+>> --all shows the full COMPUTED set, defaults included.
+
+$ kubectl get secret -n finalproject-helm -l owner=helm --no-headers
+sh.helm.release.v1.taskapi.v1   helm.sh/release.v1   1     2m7s
+sh.helm.release.v1.taskapi.v2   helm.sh/release.v1   1     116s
+sh.helm.release.v1.taskapi.v3   helm.sh/release.v1   1     80s
+sh.helm.release.v1.taskapi.v4   helm.sh/release.v1   1     44s
+>> One Secret per revision: that is where the history above lives.

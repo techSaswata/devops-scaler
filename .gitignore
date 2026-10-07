@@ -11,3 +11,4 @@ docs/
 
 # local tooling — not part of the submission
 tools/
+.pytest_cache/

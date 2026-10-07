@@ -1,0 +1,119 @@
+# ============================================================================
+# THE FINAL TROUBLESHOOTING CHALLENGE
+#
+# Six faults are planted below, each marked FAULT n. They are layered so that
+# fixing one exposes the next: the pod cannot be pulled, then cannot be
+# configured, then cannot be scheduled, then never becomes ready, then has no
+# endpoints, then refuses the connection. That is deliberate -- it is how real
+# incidents behave, and it forces a diagnosis at every layer rather than one
+# lucky guess.
+#
+# Every fault is diagnosable from the cluster alone, with no reference to this
+# file: four from `kubectl describe` events, one from comparing labels, one from
+# comparing ports.
+#
+# The answers, the symptoms and the fix for each are in ../README.md.
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: finalproject-broken
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: task-api-config
+  namespace: finalproject-broken
+data:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+  FEATURE_METRICS: "true"
+  APP_VERSION: "1.0.0"
+  DATA_DIR: "/tmp"
+---
+# FAULT 2: there is no Secret named task-api-secret in this namespace, and
+# nothing below creates one. The Deployment mounts it with secretRef, which is
+# required by default -- so the kubelet cannot build the container's
+# environment. Symptom: CreateContainerConfigError.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: task-api
+  namespace: finalproject-broken
+spec:
+  type: ClusterIP
+  selector:
+    # FAULT 5: "taskapi" -- the pods are labelled app=task-api, with a hyphen.
+    # A Service selects by label, so this matches nothing and the Service gets
+    # no endpoints. The pod can be perfectly healthy and still unreachable.
+    app: taskapi
+  ports:
+    - name: http
+      port: 80
+      # FAULT 6: the container listens on 8000 (see containerPort below).
+      # Nothing is bound to 8080, so once the endpoints exist the connection is
+      # refused rather than routed.
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: task-api
+  namespace: finalproject-broken
+  labels: { app: task-api }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: task-api }
+  template:
+    metadata:
+      labels: { app: task-api }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: api
+          # FAULT 1: the tag is 1.0.1. Only task-api:1.0.0 was built and
+          # imported into the nodes. With imagePullPolicy IfNotPresent the
+          # kubelet does not find it locally, falls back to pulling
+          # docker.io/library/task-api:1.0.1, and that repository does not
+          # exist. Symptom: ErrImagePull / ImagePullBackOff.
+          image: task-api:1.0.1
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8000, name: http }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          envFrom:
+            - configMapRef: { name: task-api-config }
+            - secretRef:    { name: task-api-secret }   # see FAULT 2
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+          readinessProbe:
+            httpGet:
+              # FAULT 4: the app serves /health and /ready. /healthz is Go
+              # convention, not this app's. It returns 404, the probe counts
+              # that as a failure, and the pod never joins the Service
+              # endpoints -- while staying Running, so `get pods` looks almost
+              # fine except for the 0/1.
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 15
+          resources:
+            # FAULT 3: 16 CPUs. Every node in this cluster has 6 allocatable,
+            # so no node can satisfy the request and the pod never leaves
+            # Pending. Requests are a SCHEDULING contract, not a limit --
+            # the scheduler refuses rather than overcommitting.
+            requests: { cpu: "16", memory: 48Mi }
+            limits:   { cpu: "16", memory: 192Mi }

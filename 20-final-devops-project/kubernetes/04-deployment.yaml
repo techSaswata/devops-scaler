@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: task-api
+  namespace: finalproject
+  labels: { app: task-api }
+spec:
+  # NOTE: 1 replica, deliberately. The PVC is ReadWriteOnce, which is per-NODE -
+  # scaling beyond one node would leave pods stuck in ContainerCreating
+  # (demonstrated in module 12). A real multi-replica version would use a
+  # StatefulSet with volumeClaimTemplates, or move state to a database.
+  replicas: 1
+  strategy:
+    type: Recreate               # required: RWO cannot be mounted by old+new at once
+  selector:
+    matchLabels: { app: task-api }
+  template:
+    metadata:
+      labels: { app: task-api }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001           # so the mounted volume is writable by appuser
+        seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: task-api-data }
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: api
+          image: IMAGE_PLACEHOLDER
+          # IfNotPresent: use the image already on the node rather than pulling.
+          # Without this the kubelet resolves a bare tag like "task-api:1.0.0"
+          # to docker.io/library/task-api:1.0.0 and fails with
+          #   pull access denied, repository does not exist
+          # even though the image is sitting on the node.
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8000, name: http }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          envFrom:
+            - configMapRef: { name: task-api-config }
+            - secretRef:    { name: task-api-secret }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp,  mountPath: /tmp }
+
+          # STARTUP: runs first and alone; gives a slow boot time without
+          # weakening liveness forever.
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            failureThreshold: 30
+            periodSeconds: 2
+          # READINESS: checks the data volume is usable, not just that the
+          # process is alive. Failing removes it from Service endpoints.
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 5
+            failureThreshold: 3
+          # LIVENESS: generous, because its remedy is a kill.
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 15
+            failureThreshold: 3
+
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }   # REQUIRED for the HPA
+            limits:   { cpu: 500m, memory: 256Mi }

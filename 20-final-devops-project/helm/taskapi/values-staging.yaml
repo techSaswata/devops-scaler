@@ -1,0 +1,11 @@
+# A staging overlay: same chart, cheaper and noisier.
+config:
+  environment: staging
+  logLevel: DEBUG
+
+resources:
+  requests: { cpu: 50m,  memory: 48Mi }
+  limits:   { cpu: 250m, memory: 128Mi }
+
+ingress:
+  host: taskapi-staging.local

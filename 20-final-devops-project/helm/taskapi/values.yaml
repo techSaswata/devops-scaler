@@ -1,0 +1,43 @@
+replicaCount: 1
+
+image:
+  repository: task-api
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+config:
+  environment: production
+  logLevel: INFO
+  featureMetrics: true
+
+# Secret values are NOT here. The chart references an existing Secret created
+# out of band, so no credential is ever templated into a committed file.
+existingSecret: task-api-secret
+
+persistence:
+  enabled: true
+  size: 128Mi
+  storageClass: standard
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  host: taskapi-helm.local
+
+# Defaults are the STATEFUL configuration: one replica holding a ReadWriteOnce
+# volume. Autoscaling is therefore off -- templates/_validate.tpl rejects the
+# combination of a persistent volume and more than one replica, because RWO is
+# a per-node mount. values-scaled.yaml is the stateless, autoscaled alternative.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
+  targetCPUUtilizationPercentage: 60
+
+resources:
+  requests: { cpu: 100m, memory: 64Mi }
+  limits:   { cpu: 500m, memory: 256Mi }

@@ -1,0 +1,7 @@
+# .terraform/ holds provider binaries (~650MB), over GitHub's 100MB file limit.
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+tfplan
+crash.log

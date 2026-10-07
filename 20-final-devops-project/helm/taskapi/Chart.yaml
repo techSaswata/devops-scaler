@@ -1,0 +1,8 @@
+apiVersion: v2
+name: taskapi
+description: Helm chart for the Task API final project
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: Saswata Das
