@@ -1,0 +1,209 @@
+
+=== STEP 1 — INSTALL (revision 1) ===
+
+$ helm install web webapp -n helm-demo --create-namespace --wait --timeout 5m 2>&1 | head -8
+NAME: web
+LAST DEPLOYED: Wed Oct  7 23:29:47 2026
+NAMESPACE: helm-demo
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+NOTES:
+webapp release "web" is installed in namespace helm-demo.
+
+$ helm list -n helm-demo
+NAME	NAMESPACE	REVISION	UPDATED                             	STATUS  	CHART       	APP VERSION
+web 	helm-demo	1       	2026-10-07 23:29:47.422705 +0530 IST	deployed	webapp-0.1.0	1.27       
+live page:
+    release=web revision=1 chart=webapp-0.1.0 env=development replicas=2
+
+$ kubectl get pods -n helm-demo
+NAME                          READY   STATUS    RESTARTS   AGE
+web-webapp-68f4b5f58c-jmk75   1/1     Running   0          4s
+web-webapp-68f4b5f58c-vdkqq   1/1     Running   0          4s
+
+=== STEP 2 — UPGRADE (revision 2): change values only ===
+$ helm upgrade web webapp -n helm-demo --set replicaCount=4 --set config.environment=staging --wait
+Release "web" has been upgraded. Happy Helming!
+NAME: web
+LAST DEPLOYED: Wed Oct  7 23:29:51 2026
+NAMESPACE: helm-demo
+STATUS: deployed
+REVISION: 2
+DESCRIPTION: Upgrade complete
+NOTES:
+
+=== STEP 3 — VERIFY revision 2 ===
+
+$ helm list -n helm-demo
+NAME	NAMESPACE	REVISION	UPDATED                             	STATUS  	CHART       	APP VERSION
+web 	helm-demo	2       	2026-10-07 23:29:51.738938 +0530 IST	deployed	webapp-0.1.0	1.27       
+
+$ helm get values web -n helm-demo
+USER-SUPPLIED VALUES:
+config:
+  environment: staging
+  message: Hello from Helm (staging)
+replicaCount: 4
+>> helm get values now shows ONLY the overrides - this is the user-supplied layer.
+live page:
+    release=web revision=2 chart=webapp-0.1.0 env=staging replicas=4
+
+$ kubectl get pods -n helm-demo
+NAME                          READY   STATUS    RESTARTS   AGE
+web-webapp-84fbcb66bb-hxtr6   1/1     Running   0          4s
+web-webapp-84fbcb66bb-mmnf4   1/1     Running   0          6s
+web-webapp-84fbcb66bb-n9558   1/1     Running   0          4s
+web-webapp-84fbcb66bb-wf49v   1/1     Running   0          6s
+>> 4 replicas, environment=staging. Note the pods were RECREATED even though
+>> only a ConfigMap value changed - that is the checksum/config annotation
+>> in the pod template doing its job.
+
+=== STEP 4 — UPGRADE AGAIN (revision 3): use a values FILE ===
+
+$ cat webapp/values-prod.yaml
+# Production overrides, applied with:  helm install ... -f values-prod.yaml
+replicaCount: 4
+config:
+  environment: production
+  message: "Hello from Helm (production)"
+resources:
+  requests: { cpu: 100m, memory: 64Mi }
+  limits:   { cpu: 500m, memory: 256Mi }
+$ helm upgrade web webapp -n helm-demo -f webapp/values-prod.yaml --wait
+Release "web" has been upgraded. Happy Helming!
+NAME: web
+LAST DEPLOYED: Wed Oct  7 23:29:57 2026
+NAMESPACE: helm-demo
+STATUS: deployed
+REVISION: 3
+DESCRIPTION: Upgrade complete
+NOTES:
+
+=== STEP 5 — VERIFY revision 3 ===
+
+$ helm list -n helm-demo
+NAME	NAMESPACE	REVISION	UPDATED                             	STATUS  	CHART       	APP VERSION
+web 	helm-demo	3       	2026-10-07 23:29:57.846266 +0530 IST	deployed	webapp-0.1.0	1.27       
+
+$ helm get values web -n helm-demo
+USER-SUPPLIED VALUES:
+config:
+  environment: production
+  message: Hello from Helm (production)
+replicaCount: 4
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 64Mi
+live page:
+    release=web revision=3 chart=webapp-0.1.0 env=production replicas=4
+
+$ kubectl get pods -n helm-demo
+NAME                          READY   STATUS    RESTARTS   AGE
+web-webapp-576c86bdff-6jgxs   1/1     Running   0          8s
+web-webapp-576c86bdff-dk726   1/1     Running   0          8s
+web-webapp-576c86bdff-tf62f   1/1     Running   0          7s
+web-webapp-576c86bdff-wqrbx   1/1     Running   0          6s
+>> 4 replicas, environment=production.
+
+=== STEP 6 — helm history: the full audit trail ===
+
+$ helm history web -n helm-demo
+REVISION	UPDATED                 	STATUS    	CHART       	APP VERSION	DESCRIPTION     
+1       	Wed Oct  7 23:29:47 2026	superseded	webapp-0.1.0	1.27       	Install complete
+2       	Wed Oct  7 23:29:51 2026	superseded	webapp-0.1.0	1.27       	Upgrade complete
+3       	Wed Oct  7 23:29:57 2026	deployed  	webapp-0.1.0	1.27       	Upgrade complete
+>> Every revision, with its status and description. This is what makes
+>> rollback possible: Helm stores each release's full manifest in a Secret.
+
+$ kubectl get secrets -n helm-demo -l owner=helm
+NAME                        TYPE                 DATA   AGE
+sh.helm.release.v1.web.v1   helm.sh/release.v1   1      19s
+sh.helm.release.v1.web.v2   helm.sh/release.v1   1      15s
+sh.helm.release.v1.web.v3   helm.sh/release.v1   1      9s
+>> One Secret per revision, type helm.sh/release.v1.
+
+=== STEP 7 — ROLLBACK to revision 2 ===
+$ helm rollback web 2 -n helm-demo --wait
+Rollback was a success! Happy Helming!
+
+$ helm list -n helm-demo
+NAME	NAMESPACE	REVISION	UPDATED                             	STATUS  	CHART       	APP VERSION
+web 	helm-demo	4       	2026-10-07 23:30:06.947305 +0530 IST	deployed	webapp-0.1.0	1.27       
+>> REVISION is now 4, not 2. A rollback creates a NEW revision whose
+>> content equals the old one - history is append-only and never rewritten.
+
+=== STEP 8 — VERIFY the rollback ===
+
+$ helm get values web -n helm-demo
+USER-SUPPLIED VALUES:
+config:
+  environment: staging
+  message: Hello from Helm (staging)
+replicaCount: 4
+live page:
+    release=web revision=2 chart=webapp-0.1.0 env=staging replicas=4
+
+$ kubectl get pods -n helm-demo
+NAME                          READY   STATUS    RESTARTS   AGE
+web-webapp-84fbcb66bb-4hq6x   1/1     Running   0          8s
+web-webapp-84fbcb66bb-m8x87   1/1     Running   0          7s
+web-webapp-84fbcb66bb-wbc9b   1/1     Running   0          8s
+web-webapp-84fbcb66bb-x6ngx   1/1     Running   0          6s
+>> Back to environment=staging - the revision-2 state.
+
+$ helm history web -n helm-demo
+REVISION	UPDATED                 	STATUS    	CHART       	APP VERSION	DESCRIPTION     
+1       	Wed Oct  7 23:29:47 2026	superseded	webapp-0.1.0	1.27       	Install complete
+2       	Wed Oct  7 23:29:51 2026	superseded	webapp-0.1.0	1.27       	Upgrade complete
+3       	Wed Oct  7 23:29:57 2026	superseded	webapp-0.1.0	1.27       	Upgrade complete
+4       	Wed Oct  7 23:30:06 2026	deployed  	webapp-0.1.0	1.27       	Rollback to 2   
+>> The description column records 'Rollback to 2'.
+
+=== STEP 9 — ROLLBACK WITH NO ARGUMENT = previous revision ===
+$ helm rollback web -n helm-demo --wait      (no revision number)
+Rollback was a success! Happy Helming!
+
+$ helm history web -n helm-demo
+REVISION	UPDATED                 	STATUS    	CHART       	APP VERSION	DESCRIPTION     
+1       	Wed Oct  7 23:29:47 2026	superseded	webapp-0.1.0	1.27       	Install complete
+2       	Wed Oct  7 23:29:51 2026	superseded	webapp-0.1.0	1.27       	Upgrade complete
+3       	Wed Oct  7 23:29:57 2026	superseded	webapp-0.1.0	1.27       	Upgrade complete
+4       	Wed Oct  7 23:30:06 2026	superseded	webapp-0.1.0	1.27       	Rollback to 2   
+5       	Wed Oct  7 23:30:15 2026	deployed  	webapp-0.1.0	1.27       	Rollback to 3   
+live page:
+    release=web revision=3 chart=webapp-0.1.0 env=production replicas=4
+>> With no number, Helm rolls back ONE revision - from 4 to 3, which was
+>> production. So this undid the previous rollback.
+
+=== SUMMARY ===
+
+  install  -> rev 1  development, 2 replicas
+  upgrade  -> rev 2  staging,     4 replicas   (--set)
+  upgrade  -> rev 3  production,  4 replicas   (-f values-prod.yaml)
+  rollback -> rev 4  == rev 2 content (staging)
+  rollback -> rev 5  == rev 3 content (production)
+
+  KEY POINTS
+
+  1. A rollback CREATES A NEW REVISION. History is append-only, so you can
+     always roll forward again. `helm history` is a complete audit trail.
+
+  2. Helm stores every revision's rendered manifest in a Kubernetes Secret
+     (type helm.sh/release.v1) in the release namespace. That is the state
+     store - there is no external database.
+
+  3. `helm get values` shows only USER-SUPPLIED values; add --all to see them
+     merged with the chart defaults.
+
+  4. --wait makes Helm block until the resources are actually Ready, so a
+     failed upgrade is visible immediately instead of at the next page load.
+     Add --atomic to roll back automatically if the upgrade fails.
+
+  5. The checksum/config annotation is what makes a values-only change restart
+     the pods. Without it, the ConfigMap would update and the running pods
+     would keep serving the old content.

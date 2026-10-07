@@ -1,0 +1,15 @@
+apiVersion: v2
+name: webapp
+description: A small Helm chart used to demonstrate the full Helm lifecycle
+type: application
+
+# version      = the CHART's own version. Bump when the templates change.
+# appVersion   = the version of the APPLICATION the chart deploys.
+# They are deliberately independent: you can ship a chart fix without the app
+# changing, and vice versa.
+version: 0.1.0
+appVersion: "1.27"
+
+keywords: [demo, nginx, devops-homework]
+maintainers:
+  - name: Saswata Das

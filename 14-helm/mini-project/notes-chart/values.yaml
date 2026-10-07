@@ -1,0 +1,23 @@
+# Development defaults.
+replicaCount: 1
+
+image:
+  repository: nginx
+  tag: "1.27-alpine"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+app:
+  title: "Notes App"
+  environment: "development"
+  bannerColor: "#4f9cf9"
+  featureFlags:
+    darkMode: true
+    export: false
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits:   { cpu: 200m, memory: 128Mi }

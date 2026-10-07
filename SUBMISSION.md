@@ -22,7 +22,7 @@ Paste the matching link into each field.
 | 11 | Session 12: Ingress, ConfigMaps & Secrets | `https://github.com/techSaswata/devops-scaler/blob/main/11-k8s-ingress-configmaps-secrets/README.md` | ✅ |
 | 12 | Session 13: Storage, HPA & Probes | `https://github.com/techSaswata/devops-scaler/blob/main/12-k8s-storage-hpa-probes/README.md` | ✅ |
 | 13 | Session 14: Kubernetes Troubleshooting | `https://github.com/techSaswata/devops-scaler/blob/main/13-k8s-troubleshooting/README.md` | ✅ |
-| 14 | Session 15: Helm | `https://github.com/techSaswata/devops-scaler/blob/main/14-helm/README.md` | 🔄 in progress |
+| 14 | Session 15: Helm | `https://github.com/techSaswata/devops-scaler/blob/main/14-helm/README.md` | ✅ |
 | 15 | Session 16: CI/CD & GitHub Actions | `https://github.com/techSaswata/devops-scaler/blob/main/15-cicd-github-actions/README.md` | ⏳ |
 | 16 | Session 17: Complete CI/CD & DevSecOps | `https://github.com/techSaswata/devops-scaler/blob/main/16-devsecops/README.md` | ⏳ |
 | 17 | Session 18: Terraform & Infrastructure as Code | `https://github.com/techSaswata/devops-scaler/blob/main/17-terraform-iac/README.md` | ⏳ |

@@ -1,0 +1,214 @@
+
+=== 1. THE CHART ===
+
+$ find notes-chart -type f | sort
+notes-chart/Chart.yaml
+notes-chart/templates/_helpers.tpl
+notes-chart/templates/configmap.yaml
+notes-chart/templates/deployment.yaml
+notes-chart/templates/service.yaml
+notes-chart/values-prod.yaml
+notes-chart/values.yaml
+
+$ cat notes-chart/Chart.yaml
+apiVersion: v2
+name: notes-chart
+description: A simple Notes application Helm chart
+type: application
+version: 0.1.0
+appVersion: "1.0"
+
+=== 2. LINT AND RENDER BEFORE INSTALLING ===
+
+$ helm lint notes-chart
+==> Linting notes-chart
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+
+$ helm template notes ./notes-chart | grep -E '^kind:|  name:' | head -8
+kind: ConfigMap
+  name: notes-notes-chart
+kind: Service
+  name: notes-notes-chart
+kind: Deployment
+  name: notes-notes-chart
+
+=== 3. DEV vs PROD — the same chart, two value files ===
+$ diff <(helm template notes ./notes-chart) <(helm template notes ./notes-chart -f notes-chart/values-prod.yaml)
+20,21c20,21
+<         <div style="display:inline-block;background:#4f9cf922;
+<                     border:1px solid #4f9cf955;color:#4f9cf9;
+---
+>         <div style="display:inline-block;background:#00b04f22;
+>                     border:1px solid #00b04f55;color:#00b04f;
+24c24
+<           development
+---
+>           production
+31c31
+<           <tr><td>replicas</td><td style="color:#e6e9f0">1</td></tr>
+---
+>           <tr><td>replicas</td><td style="color:#e6e9f0">3</td></tr>
+33c33
+<           <tr><td>flag: export</td><td style="color:#f7768e">false</td></tr>
+---
+>           <tr><td>flag: export</td><td style="color:#6cc24a">true</td></tr>
+71c71
+<   replicas: 1
+---
+>   replicas: 3
+
+>> One chart, two environments. Nothing is duplicated - only values differ.
+
+=== 4. INSTALL THE DEV RELEASE ===
+
+$ helm install notes-dev ./notes-chart -n notes --create-namespace --wait --timeout 5m 2>&1 | head -7
+NAME: notes-dev
+LAST DEPLOYED: Wed Oct  7 23:47:36 2026
+NAMESPACE: notes
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+
+$ helm list -n notes
+NAME     	NAMESPACE	REVISION	UPDATED                             	STATUS  	CHART            	APP VERSION
+notes-dev	notes    	1       	2026-10-07 23:47:36.336074 +0530 IST	deployed	notes-chart-0.1.0	1.0        
+
+$ kubectl get all -n notes
+NAME                                      READY   STATUS    RESTARTS   AGE
+pod/notes-dev-notes-chart-64f9c9c-zrgwf   1/1     Running   0          2s
+
+NAME                            TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+service/notes-dev-notes-chart   ClusterIP   10.96.162.105   <none>        80/TCP    2s
+
+NAME                                    READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/notes-dev-notes-chart   1/1     1            1           2s
+
+NAME                                            DESIRED   CURRENT   READY   AGE
+replicaset.apps/notes-dev-notes-chart-64f9c9c   1         1         1       2s
+live page:
+notes-dev 1|1 true false
+
+=== 5. INSTALL THE PROD RELEASE — SAME CHART, SAME CLUSTER ===
+
+$ helm install notes-prod ./notes-chart -n notes -f notes-chart/values-prod.yaml --wait --timeout 5m 2>&1 | head -7
+NAME: notes-prod
+LAST DEPLOYED: Wed Oct  7 23:47:41 2026
+NAMESPACE: notes
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+
+$ helm list -n notes
+NAME      	NAMESPACE	REVISION	UPDATED                             	STATUS  	CHART            	APP VERSION
+notes-dev 	notes    	1       	2026-10-07 23:47:36.336074 +0530 IST	deployed	notes-chart-0.1.0	1.0        
+notes-prod	notes    	1       	2026-10-07 23:47:41.239928 +0530 IST	deployed	notes-chart-0.1.0	1.0        
+
+$ kubectl get pods -n notes
+NAME                                      READY   STATUS    RESTARTS   AGE
+notes-dev-notes-chart-64f9c9c-zrgwf       1/1     Running   0          6s
+notes-prod-notes-chart-5bdd64579b-78qm5   1/1     Running   0          1s
+notes-prod-notes-chart-5bdd64579b-7nhk7   1/1     Running   0          1s
+notes-prod-notes-chart-5bdd64579b-tcgqb   1/1     Running   0          1s
+live page:
+notes-prod 1|3 true true
+
+>> TWO releases of ONE chart coexisting in the same namespace. The release
+>> name is baked into every resource name by the fullname helper, so there
+>> is no collision. This is the core value of templating.
+
+=== 6. CONFIRM THEY ARE INDEPENDENT ===
+
+$ kubectl get deploy -n notes -o custom-columns=NAME:.metadata.name,REPLICAS:.spec.replicas --no-headers
+notes-dev-notes-chart    1
+notes-prod-notes-chart   3
+
+$ helm get values notes-dev -n notes
+USER-SUPPLIED VALUES:
+null
+
+$ helm get values notes-prod -n notes
+USER-SUPPLIED VALUES:
+app:
+  bannerColor: '#00b04f'
+  environment: production
+  featureFlags:
+    darkMode: true
+    export: true
+replicaCount: 3
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 64Mi
+
+=== 7. PACKAGE THE CHART ===
+
+$ helm package notes-chart
+Successfully packaged chart and saved it to: /Users/techsaswata/Downloads/devops-scaler/14-helm/mini-project/notes-chart-0.1.0.tgz
+
+$ ls -lh notes-chart-0.1.0.tgz
+-rw-r--r--@ 1 techsaswata  staff   2.0K Oct  7 23:47 notes-chart-0.1.0.tgz
+>> A .tgz is what you push to a chart repository (ChartMuseum, Harbor,
+>> an OCI registry such as GHCR). Installing from it is identical:
+
+$ helm install notes-tgz ./notes-chart-0.1.0.tgz -n notes --dry-run 2>&1 | head -6
+level=WARN msg="--dry-run is deprecated and should be replaced with '--dry-run=client'"
+NAME: notes-tgz
+LAST DEPLOYED: Wed Oct  7 23:47:45 2026
+NAMESPACE: notes
+STATUS: pending-install
+REVISION: 1
+
+=== 8. UPGRADE THE DEV RELEASE TO ENABLE A FEATURE FLAG ===
+$ helm upgrade notes-dev ./notes-chart -n notes --set app.featureFlags.export=true --wait
+Release "notes-dev" has been upgraded. Happy Helming!
+NAME: notes-dev
+LAST DEPLOYED: Wed Oct  7 23:47:45 2026
+NAMESPACE: notes
+STATUS: deployed
+
+$ helm list -n notes
+NAME      	NAMESPACE	REVISION	UPDATED                             	STATUS  	CHART            	APP VERSION
+notes-dev 	notes    	2       	2026-10-07 23:47:45.572031 +0530 IST	deployed	notes-chart-0.1.0	1.0        
+notes-prod	notes    	1       	2026-10-07 23:47:41.239928 +0530 IST	deployed	notes-chart-0.1.0	1.0        
+live page:
+notes-dev 2|1 true true
+>> export flag is now true on dev, and prod is untouched.
+
+=== 9. UNINSTALL ===
+
+$ helm uninstall notes-dev -n notes
+release "notes-dev" uninstalled
+
+$ helm list -n notes
+NAME      	NAMESPACE	REVISION	UPDATED                             	STATUS  	CHART            	APP VERSION
+notes-prod	notes    	1       	2026-10-07 23:47:41.239928 +0530 IST	deployed	notes-chart-0.1.0	1.0        
+
+$ kubectl get all -n notes
+NAME                                          READY   STATUS        RESTARTS   AGE
+pod/notes-dev-notes-chart-5bf9974587-5pnnp    1/1     Terminating   0          5s
+pod/notes-prod-notes-chart-5bdd64579b-78qm5   1/1     Running       0          9s
+pod/notes-prod-notes-chart-5bdd64579b-7nhk7   1/1     Running       0          9s
+pod/notes-prod-notes-chart-5bdd64579b-tcgqb   1/1     Running       0          9s
+
+NAME                             TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)   AGE
+service/notes-prod-notes-chart   ClusterIP   10.96.52.79   <none>        80/TCP    9s
+
+NAME                                     READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/notes-prod-notes-chart   3/3     3            3           9s
+
+NAME                                                DESIRED   CURRENT   READY   AGE
+replicaset.apps/notes-prod-notes-chart-5bdd64579b   3         3         3       9s
+>> Uninstalling one release removed exactly its own resources.
+
+
+$ helm list -n notes --uninstalled --all
+Error: unknown flag: --all
+>> By default Helm PURGES history on uninstall. Use --keep-history to
+>> retain it so the release can still be rolled back.

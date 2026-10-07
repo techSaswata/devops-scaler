@@ -1,0 +1,28 @@
+# Default values. Everything here can be overridden with --set or -f.
+replicaCount: 2
+
+image:
+  repository: nginx
+  tag: "1.27-alpine"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits:   { cpu: 200m, memory: 128Mi }
+
+# Rendered into a ConfigMap and mounted as the served page, so a values change
+# is visible in the HTTP response.
+config:
+  environment: development
+  message: "Hello from Helm"
+
+probes:
+  enabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

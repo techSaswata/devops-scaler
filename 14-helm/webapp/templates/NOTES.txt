@@ -1,0 +1,11 @@
+{{ .Chart.Name }} release "{{ .Release.Name }}" is installed in namespace {{ .Release.Namespace }}.
+
+  Revision:    {{ .Release.Revision }}
+  Chart:       {{ .Chart.Name }}-{{ .Chart.Version }}
+  App version: {{ .Chart.AppVersion }}
+  Replicas:    {{ .Values.replicaCount }}
+  Environment: {{ .Values.config.environment }}
+
+Reach it with:
+  kubectl port-forward svc/{{ include "webapp.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://localhost:8080

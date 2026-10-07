@@ -1,0 +1,354 @@
+
+=== 1. helm version ===
+
+$ helm version
+version.BuildInfo{Version:"v4.3.0", GitCommit:"bec5b06ed841fe5269972d864d5177944fd5970f", GitTreeState:"clean", GoVersion:"go1.27.1", KubeClientVersion:"v1.37"}
+
+=== 2. helm create — scaffold a chart ===
+$ helm create webapp    (already run; the generated boilerplate was then
+                          replaced with the smaller chart below)
+
+$ find webapp -type f | sort
+webapp/.helmignore
+webapp/Chart.yaml
+webapp/templates/NOTES.txt
+webapp/templates/_helpers.tpl
+webapp/templates/configmap.yaml
+webapp/templates/deployment.yaml
+webapp/templates/service.yaml
+webapp/templates/tests/test-connection.yaml
+webapp/values-prod.yaml
+webapp/values.yaml
+
+  CHART ANATOMY
+
+    Chart.yaml     metadata: name, version, appVersion, dependencies
+    values.yaml    DEFAULT configuration - every value overridable
+    templates/     Go templates rendered into Kubernetes manifests
+      _helpers.tpl   reusable named templates (naming, labels)
+      NOTES.txt      printed after install
+    .helmignore    files excluded when packaging
+
+  version vs appVersion:
+    version    = the CHART's version   - bump when the TEMPLATES change
+    appVersion = the APPLICATION's     - bump when the IMAGE changes
+  They are independent on purpose.
+
+$ cat webapp/Chart.yaml
+apiVersion: v2
+name: webapp
+description: A small Helm chart used to demonstrate the full Helm lifecycle
+type: application
+
+# version      = the CHART's own version. Bump when the templates change.
+# appVersion   = the version of the APPLICATION the chart deploys.
+# They are deliberately independent: you can ship a chart fix without the app
+# changing, and vice versa.
+version: 0.1.0
+appVersion: "1.27"
+
+keywords: [demo, nginx, devops-homework]
+maintainers:
+  - name: Saswata Das
+
+=== 3. helm lint — validate before installing ===
+
+$ helm lint webapp
+==> Linting webapp
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+
+=== 4. helm template — render locally, install nothing ===
+$ helm template web webapp | head -40
+          <tr><td>replicas</td><td style="color:#e6e9f0">2</td></tr>
+        </table>
+      </div>
+    </body>
+    </html>
+
+---
+# Source: webapp/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-webapp
+  labels:
+    helm.sh/chart: webapp-0.1.0
+    app.kubernetes.io/name: webapp
+    app.kubernetes.io/instance: web
+    app.kubernetes.io/version: "1.27"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: webapp
+    app.kubernetes.io/instance: web
+
+---
+# Source: webapp/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-webapp
+  labels:
+    helm.sh/chart: webapp-0.1.0
+    app.kubernetes.io/name: webapp
+    app.kubernetes.io/instance: web
+    app.kubernetes.io/version: "1.27"
+    app.kubernetes.io/managed-by: Helm
+>> This is the single most useful debugging command in Helm: see exactly
+>> what WOULD be sent to the API server, without sending it.
+
+=== 5. helm install --dry-run --debug ===
+
+$ helm install web webapp -n helm-demo --create-namespace --dry-run 2>&1 | head -18
+level=WARN msg="--dry-run is deprecated and should be replaced with '--dry-run=client'"
+NAME: web
+LAST DEPLOYED: Wed Oct  7 23:27:20 2026
+NAMESPACE: helm-demo
+STATUS: pending-install
+REVISION: 1
+DESCRIPTION: Dry run complete
+HOOKS:
+---
+# Source: webapp/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "web-webapp-test-connection"
+  labels:
+    helm.sh/chart: webapp-0.1.0
+    app.kubernetes.io/name: webapp
+    app.kubernetes.io/instance: web
+>> --dry-run also runs server-side validation, so it catches schema errors
+>> that 'helm template' alone would not.
+
+=== 6. helm install ===
+
+$ helm install web webapp -n helm-demo --create-namespace --wait --timeout 5m
+NAME: web
+LAST DEPLOYED: Wed Oct  7 23:27:20 2026
+NAMESPACE: helm-demo
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+NOTES:
+webapp release "web" is installed in namespace helm-demo.
+
+  Revision:    1
+  Chart:       webapp-0.1.0
+  App version: 1.27
+  Replicas:    2
+  Environment: development
+
+Reach it with:
+  kubectl port-forward svc/web-webapp 8080:80
+  curl http://localhost:8080
+>> NOTES.txt was rendered and printed - note the release name, namespace
+>> and revision are all template values.
+
+=== 7. helm list ===
+
+$ helm list -n helm-demo
+NAME	NAMESPACE	REVISION	UPDATED                            	STATUS  	CHART       	APP VERSION
+web 	helm-demo	1       	2026-10-07 23:27:20.15871 +0530 IST	deployed	webapp-0.1.0	1.27       
+
+$ helm list -A
+NAME	NAMESPACE	REVISION	UPDATED                            	STATUS  	CHART       	APP VERSION
+web 	helm-demo	1       	2026-10-07 23:27:20.15871 +0530 IST	deployed	webapp-0.1.0	1.27       
+>> REVISION 1, STATUS deployed.
+
+=== 8. helm status ===
+
+$ helm status web -n helm-demo
+NAME: web
+LAST DEPLOYED: Wed Oct  7 23:27:20 2026
+NAMESPACE: helm-demo
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+RESOURCES:
+==> v1/ConfigMap
+NAME         DATA   AGE
+web-webapp   1      2s
+
+==> v1/Service
+NAME         TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+web-webapp   ClusterIP   10.96.64.110   <none>        80/TCP    2s
+
+==> v1/Deployment
+NAME         READY   UP-TO-DATE   AVAILABLE   AGE
+web-webapp   2/2     2            2           2s
+
+==> v1/Pod(related)
+NAME                          READY   STATUS    RESTARTS   AGE
+web-webapp-68f4b5f58c-d28l8   1/1     Running   0          2s
+web-webapp-68f4b5f58c-qzggk   1/1     Running   0          2s
+
+
+NOTES:
+webapp release "web" is installed in namespace helm-demo.
+
+
+=== 9. helm get — what was actually installed? ===
+
+$ helm get values web -n helm-demo
+USER-SUPPLIED VALUES:
+null
+>> Empty: no overrides were supplied, so all defaults were used.
+
+$ helm get values web -n helm-demo --all | head -22
+COMPUTED VALUES:
+affinity: {}
+config:
+  environment: development
+  message: Hello from Helm
+image:
+  pullPolicy: IfNotPresent
+  repository: nginx
+  tag: 1.27-alpine
+nodeSelector: {}
+probes:
+  enabled: true
+replicaCount: 2
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 32Mi
+service:
+  port: 80
+
+
+$ helm get manifest web -n helm-demo | grep -E '^kind:|^  name:' | head -10
+kind: ConfigMap
+  name: web-webapp
+kind: Service
+  name: web-webapp
+kind: Deployment
+  name: web-webapp
+
+
+$ helm get notes web -n helm-demo
+NOTES:
+webapp release "web" is installed in namespace helm-demo.
+
+  Revision:    1
+  Chart:       webapp-0.1.0
+  App version: 1.27
+  Replicas:    2
+  Environment: development
+
+Reach it with:
+  kubectl port-forward svc/web-webapp 8080:80
+  curl http://localhost:8080
+
+
+>> helm get has sub-commands: values, manifest, notes, hooks, metadata, all.
+
+=== 10. VERIFY IT ACTUALLY RUNS ===
+
+$ kubectl get all -n helm-demo
+NAME                              READY   STATUS    RESTARTS   AGE
+pod/web-webapp-68f4b5f58c-d28l8   1/1     Running   0          2s
+pod/web-webapp-68f4b5f58c-qzggk   1/1     Running   0          2s
+
+NAME                 TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+service/web-webapp   ClusterIP   10.96.64.110   <none>        80/TCP    2s
+
+NAME                         READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/web-webapp   2/2     2            2           2s
+
+NAME                                    DESIRED   CURRENT   READY   AGE
+replicaset.apps/web-webapp-68f4b5f58c   2         2         2       2s
+$ curl -s http://localhost:18090/ | grep -E 'revision|environment|replicas' -A1
+web
+helm-demo
+1
+webapp-0.1.0
+1.27
+development
+2
+>> The rendered page reports the release name, revision and values.
+
+=== 11. helm repo — working with chart repositories ===
+
+$ helm repo add bitnami https://charts.bitnami.com/bitnami
+"bitnami" has been added to your repositories
+scripts/01-helm-commands.sh: line 6: 32271 Terminated: 15          kubectl port-forward -n helm-demo svc/web-webapp 18090:80 > /dev/null 2>&1
+
+$ helm repo list
+NAME   	URL                               
+bitnami	https://charts.bitnami.com/bitnami
+
+$ helm repo update 2>&1 | tail -3
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "bitnami" chart repository
+Update Complete. ⎈Happy Helming!⎈
+
+=== 12. helm search ===
+
+$ helm search repo bitnami/nginx | head -6
+NAME                            	CHART VERSION	APP VERSION	DESCRIPTION                                       
+bitnami/nginx                   	25.2.1       	1.31.6     	NGINX Open Source is a web server that can be a...
+bitnami/nginx-ingress-controller	12.0.7       	1.13.1     	NGINX Ingress Controller is an Ingress controll...
+bitnami/nginx-intel             	2.1.15       	0.4.9      	DEPRECATED NGINX Open Source for Intel is a lig...
+
+$ helm search repo database | head -8
+NAME                       	CHART VERSION	APP VERSION 	DESCRIPTION                                       
+bitnami/cassandra          	12.3.11      	5.0.5       	Apache Cassandra is an open source distributed ...
+bitnami/clickhouse         	9.4.4        	25.7.5      	ClickHouse is an open-source column-oriented OL...
+bitnami/clickhouse-operator	0.2.33       	0.25.3      	ClickHouse Operator is a production-ready opera...
+bitnami/cloudnative-pg     	1.0.11       	1.26.1      	CloudNativePG is an open-source tool for managi...
+bitnami/dokuwiki           	16.2.11      	20240206.1.0	DEPRECATED DokuWiki is a standards-compliant wi...
+bitnami/gitea              	3.2.22       	1.24.5      	Gitea is a lightweight code hosting solution. W...
+bitnami/influxdb           	7.1.20       	3.4.1       	InfluxDB(TM) Core is an open source time-series...
+
+
+$ helm search hub prometheus --max-col-width 60 2>&1 | head -6
+URL                                                         	CHART VERSION     	APP VERSION            	DESCRIPTION                                                 
+https://artifacthub.io/packages/helm/prometheus-community...	29.36.0           	v3.15.0                	Prometheus is a monitoring system and time series database. 
+https://artifacthub.io/packages/helm/quench-prometheus/pr...	0.0.20            	3.15.0                 	Metrics collection, storage, and alerting system that scr...
+https://artifacthub.io/packages/helm/saurabh6-prometheus/...	0.2.0             	1.1                    	This is a Helm Chart for Prometheus Setup.                  
+https://artifacthub.io/packages/helm/prometheus-worawutch...	13.0.0            	2.22.1                 	Prometheus is a monitoring system and time series database. 
+https://artifacthub.io/packages/helm/grafana-uxadax/prome...	26.0.1            	v3.0.1                 	Prometheus is a monitoring system and time series database. 
+>> 'search repo' looks in repos you have added; 'search hub' queries
+>> Artifact Hub over the network.
+
+=== 13. helm show — inspect a chart WITHOUT installing it ===
+
+$ helm show chart bitnami/nginx 2>&1 | head -12
+annotations:
+  fips: "true"
+  images: |
+    - name: git
+      version: 2.56.0
+      image: registry-1.docker.io/bitnami/git:latest
+    - name: nginx
+      version: 1.31.6
+      image: registry-1.docker.io/bitnami/nginx:latest
+    - name: nginx-exporter
+      version: 1.5.3
+      image: registry-1.docker.io/bitnami/nginx-exporter:latest
+
+$ helm show values bitnami/nginx 2>&1 | head -12
+# Copyright Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: APACHE-2.0
+
+## @section Global parameters
+## Global Docker image parameters
+## Please, note that this will override the image parameters, including dependencies, configured to use the global value
+## Current available global Docker image parameters: imageRegistry, imagePullSecrets and storageClass
+
+## @param global.imageRegistry Global Docker image registry
+## @param global.imagePullSecrets Global Docker registry secret names as an array
+## @param global.defaultFips Default value for the FIPS configuration (allowed values: '', restricted, relaxed, off). Can be overridden by the 'fips' object
+##

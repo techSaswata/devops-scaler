@@ -1,0 +1,13 @@
+# Production overrides:  helm install notes ./notes-chart -f values-prod.yaml
+replicaCount: 3
+
+app:
+  environment: "production"
+  bannerColor: "#00b04f"
+  featureFlags:
+    darkMode: true
+    export: true          # the export feature is enabled only in production
+
+resources:
+  requests: { cpu: 100m, memory: 64Mi }
+  limits:   { cpu: 500m, memory: 256Mi }

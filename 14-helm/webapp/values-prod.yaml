@@ -1,0 +1,8 @@
+# Production overrides, applied with:  helm install ... -f values-prod.yaml
+replicaCount: 4
+config:
+  environment: production
+  message: "Hello from Helm (production)"
+resources:
+  requests: { cpu: 100m, memory: 64Mi }
+  limits:   { cpu: 500m, memory: 256Mi }
