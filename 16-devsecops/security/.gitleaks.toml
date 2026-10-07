@@ -17,5 +17,18 @@ paths = [
   '''.*/screenshots/.*''',
   '''.*\.md$''',                  # documentation shows example values
   '''security/\.gitleaks\.toml''',  # this file contains the patterns themselves
-  '''.*/secret\.example\.yaml$'''   # placeholders only - REPLACE_ME, never real values
+  '''.*/secret\.example\.yaml$''',  # placeholders only - REPLACE_ME, never real values
+
+  # --- deliberate teaching material, reviewed and justified ---------------
+  # Module 11 demonstrates that a Kubernetes Secret is base64-ENCODED, not
+  # encrypted, by decoding one. That lesson requires a committed Secret
+  # manifest. Its values ("secretpassword", "yatri_admin") are invented for
+  # the lab, are documented as such in that module's README, and grant access
+  # to nothing. Allowlisted by exact path rather than by rule, so the rule
+  # still protects every other file.
+  '''11-k8s-ingress-configmaps-secrets/manifests/02-secret\.yaml$''',
+
+  # This module's own scan script GENERATES credential-shaped sample lines to
+  # show what the scanner looks for. Allowlisted by exact path.
+  '''16-devsecops/scripts/01-security-scans\.sh$'''
 ]
