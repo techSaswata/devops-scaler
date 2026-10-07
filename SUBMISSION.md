@@ -27,7 +27,7 @@ Paste the matching link into each field.
 | 16 | Session 17: Complete CI/CD & DevSecOps | `https://github.com/techSaswata/devops-scaler/blob/main/16-devsecops/README.md` | ✅ |
 | 17 | Session 18: Terraform & Infrastructure as Code | `https://github.com/techSaswata/devops-scaler/blob/main/17-terraform-iac/README.md` | ✅ |
 | 18 | Session 19: Cloud & Terraform in Action | `https://github.com/techSaswata/devops-scaler/blob/main/18-cloud-terraform/README.md` | ✅ |
-| 19 | Session 20: Monitoring, Observability & GitOps | `https://github.com/techSaswata/devops-scaler/blob/main/19-monitoring-observability-gitops/README.md` | ⏳ |
+| 19 | Session 20: Monitoring, Observability & GitOps | `https://github.com/techSaswata/devops-scaler/blob/main/19-monitoring-observability-gitops/README.md` | ✅ |
 | 20 | Session 21: Final DevOps Project | `https://github.com/techSaswata/devops-scaler/blob/main/20-final-devops-project/README.md` | ⏳ |
 
 ## Notes

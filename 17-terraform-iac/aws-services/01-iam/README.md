@@ -29,7 +29,7 @@ aws iam create-access-key --user-name saswata
 > **Access keys are the main way AWS accounts get compromised** — committed to git, pasted
 > into a chat, left in a `.env`. Prefer roles (below), and if you must use a key, rotate it
 > on a schedule and never commit it. GitHub's secret scanning will block a push containing
-> one, as demonstrated in [module 16](../../16-devsecops/#4-secret-scanning--which-caught-me-twice).
+> one, as demonstrated in [module 16](../../../16-devsecops/#4-secret-scanning--which-caught-me-twice).
 
 ## Groups
 

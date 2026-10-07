@@ -54,7 +54,7 @@ Named `family.generation.size` — `t3.micro`, `m6i.large`, `c7g.xlarge`.
 A trailing **`g`** (`c7g`, `m7g`) means **Graviton** — AWS's own ARM processors, typically
 ~20% cheaper for the same performance. The catch is that your container images must be built
 for `arm64` — exactly the multi-arch problem hit in
-[module 15](../../15-cicd-github-actions/#7-three-real-failures-and-the-fixes).
+[module 15](../../../15-cicd-github-actions/#7-three-real-failures-and-the-fixes).
 
 > **The `t` family burst model:** t-instances earn CPU credits while idle and spend them
 > under load. Exhaust the credits and you are throttled to the baseline — a classic cause of
@@ -99,7 +99,7 @@ db-sg     inbound 5432 from app-sg
 
 The database is then reachable only from the app tier, and the rule keeps working as
 instances come and go. This is the same reasoning as Kubernetes label selectors in
-[module 10](../../10-k8s-networking-services/).
+[module 10](../../../10-k8s-networking-services/).
 
 > **Security group vs NACL:** security groups are stateful, instance-level and allow-only.
 > Network ACLs are **stateless**, subnet-level, and support deny rules — so with a NACL you
@@ -193,4 +193,4 @@ aws ec2 describe-instance-types --instance-types t3.micro \
 ```
 
 A working Terraform EC2 instance — with a security group, an IAM instance profile and a
-VPC — is in [module 18](../../18-cloud-terraform/).
+VPC — is in [module 18](../../../18-cloud-terraform/).

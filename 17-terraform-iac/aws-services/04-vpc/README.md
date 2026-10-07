@@ -9,7 +9,7 @@ with your own IP range, subnets, routing and firewalls. Nothing in it is reachab
 internet unless you explicitly arrange it.
 
 A working Terraform VPC with subnets, routing, a gateway and an EC2 instance is built in
-[module 18](../../18-cloud-terraform/).
+[module 18](../../../18-cloud-terraform/).
 
 ## CIDR
 

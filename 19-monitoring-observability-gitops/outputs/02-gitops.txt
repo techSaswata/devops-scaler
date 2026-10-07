@@ -1,0 +1,155 @@
+
+=== 1. WHAT GITOPS IS ===
+  The deployment model most teams start with is PUSH:
+
+      developer / CI  ──kubectl apply──▶  cluster
+      CI needs cluster credentials; nobody knows what is actually running.
+
+  GitOps is PULL:
+
+      git (desired state)  ◀──watches──  agent INSIDE the cluster  ──applies──▶ cluster
+
+  FOUR PRINCIPLES
+    1. Declarative      the whole system is described as data, not scripts
+    2. Versioned        git is the single source of truth, with history
+    3. Pulled           an agent in the cluster fetches; CI never gets creds
+    4. Reconciled       drift is corrected CONTINUOUSLY, not just at deploy time
+
+  Point 4 is the one that distinguishes GitOps from "CI that runs kubectl".
+
+=== 2. THE ARGO CD INSTALLATION ===
+
+$ kubectl get pods -n argocd
+NAME                                                READY   STATUS    RESTARTS   AGE
+argocd-application-controller-0                     1/1     Running   0          95m
+argocd-applicationset-controller-76fd8cdd4f-jm69l   1/1     Running   0          95m
+argocd-dex-server-66c78cf887-lmrnd                  1/1     Running   0          95m
+argocd-notifications-controller-7fb9868fd6-dswvd    1/1     Running   0          95m
+argocd-redis-6c875cfb6-xmcqj                        1/1     Running   0          79m
+argocd-repo-server-d89c7967d-7hfgm                  1/1     Running   0          95m
+argocd-server-776b7cdd4d-b7m8m                      1/1     Running   0          95m
+
+$ kubectl get crd | grep argoproj
+applications.argoproj.io                    Namespaced   v1alpha1(storage)   2026-10-07T19:57:38Z
+applicationsets.argoproj.io                 Namespaced   v1alpha1(storage)   2026-10-07T19:57:49Z
+appprojects.argoproj.io                     Namespaced   v1alpha1(storage)   2026-10-07T19:57:38Z
+>> Three CRDs: Application (one deployable unit), AppProject (guardrails
+>> on what an Application may do), ApplicationSet (templating many Apps).
+
+=== 3. THE APPLICATION — the git-to-cluster contract ===
+
+$ cat ../gitops/application.yaml | sed -n '/^spec:/,$p'
+cat: ../gitops/application.yaml: No such file or directory
+
+$ kubectl get application gitops-demo -n argocd
+NAME          SYNC STATUS   HEALTH STATUS
+gitops-demo   Synced        Healthy
+
+$ kubectl get application gitops-demo -n argocd -o jsonpath='repo={.spec.source.repoURL}{"\n"}path={.spec.source.path}{"\n"}revision={.spec.source.targetRevision}{"\n"}dest={.spec.destination.namespace}{"\n"}'
+repo=https://github.com/techSaswata/devops-scaler.git
+path=19-monitoring-observability-gitops/gitops/manifests
+revision=main
+dest=gitops-demo
+
+=== 4. WHAT IT DEPLOYED — with no kubectl apply ===
+
+$ kubectl get all -n gitops-demo
+NAME                              READY   STATUS        RESTARTS   AGE
+pod/gitops-demo-9cfc99bc4-5wjx6   1/1     Running       0          77m
+pod/gitops-demo-9cfc99bc4-fpc5s   1/1     Terminating   0          24s
+pod/gitops-demo-9cfc99bc4-jkjwd   1/1     Running       0          77m
+
+NAME                  TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+service/gitops-demo   ClusterIP   10.96.205.245   <none>        80/TCP    77m
+
+NAME                          READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/gitops-demo   2/2     2            2           77m
+
+NAME                                    DESIRED   CURRENT   READY   AGE
+replicaset.apps/gitops-demo-9cfc99bc4   2         2         2       77m
+
+$ kubectl get application gitops-demo -n argocd -o jsonpath='{range .status.resources[*]}  {.kind}/{.name}  {.status}{"\n"}{end}'
+  ConfigMap/gitops-demo  Synced
+  Service/gitops-demo  Synced
+  Deployment/gitops-demo  Synced
+>> Argo CD created every one of those by pulling this repository.
+
+$ wget -qO- http://gitops-demo | grep -o '<h1>.*</h1>'
+
+=== 5. SELF-HEALING — the part that is NOT just automated deployment ===
+Git says replicas: 2. Change it by hand and watch Argo CD revert it.
+
+$ kubectl get deployment gitops-demo -n gitops-demo -o jsonpath='replicas now: {.spec.replicas}{"\n"}'
+replicas now: 2
+
+$ kubectl scale deployment gitops-demo -n gitops-demo --replicas=5   (a manual change)
+sampling every 2s - watch it get reverted:
+  t+0  s  spec.replicas=5
+  t+2  s  spec.replicas=5
+  t+4  s  spec.replicas=2   <-- Argo CD reverted it
+
+$ kubectl get deployment gitops-demo -n gitops-demo -o jsonpath='replicas: {.spec.replicas}{"\n"}'
+replicas: 2
+
+$ kubectl get application gitops-demo -n argocd
+NAME          SYNC STATUS   HEALTH STATUS
+gitops-demo   OutOfSync     Progressing
+
+>> THIS is the difference between GitOps and CI-that-runs-kubectl.
+>> A push pipeline deploys and then stops caring. Argo CD keeps comparing
+>> the cluster against git FOREVER, so a 3am manual hotfix is reverted
+>> rather than silently becoming undocumented production state.
+
+=== 6. SYNC AND HEALTH STATUS ===
+
+$ kubectl get application gitops-demo -n argocd -o jsonpath='sync={.status.sync.status}  health={.status.health.status}  revision={.status.sync.revision}{"\n"}'
+sync=OutOfSync  health=Progressing  revision=0e69f9ac6bee6d0d7d7306016a97a9da5959904a
+
+  SYNC STATUS     is the cluster what git says?
+    Synced        yes
+    OutOfSync     no - something differs
+    Unknown       cannot tell (repo unreachable, bad path)
+
+  HEALTH STATUS   is what is deployed actually WORKING?
+    Healthy       all resources report ready
+    Progressing   a rollout is in flight
+    Degraded      something failed
+    Missing       declared in git, absent from the cluster
+
+  They are independent, and the interesting case is Synced + Degraded: the
+  cluster matches git exactly, and git is wrong.
+
+=== 7. SYNC HISTORY — the audit trail ===
+
+$ kubectl get application gitops-demo -n argocd -o jsonpath='{range .status.history[*]}  revision={.revision}  deployedAt={.deployedAt}{"\n"}{end}'
+  revision=0e69f9ac6bee6d0d7d7306016a97a9da5959904a  deployedAt=2026-10-07T20:15:33Z
+>> Every sync is recorded with the git SHA that produced it. Rolling back
+>> means reverting the commit - the cluster follows automatically. There
+>> is no separate deployment tool to interrogate.
+
+=== 8. PRUNE — deleting from git deletes from the cluster ===
+
+$ kubectl get application gitops-demo -n argocd -o jsonpath='prune={.spec.syncPolicy.automated.prune}  selfHeal={.spec.syncPolicy.automated.selfHeal}{"\n"}'
+prune=true  selfHeal=true
+>> prune:true means a resource removed from git is DELETED from the
+>> cluster. Without it, deleting a file leaves the object orphaned
+>> forever - running, unmanaged, and invisible to code review.
+
+=== 9. GITOPS vs PUSH-BASED CI/CD ===
+
+                      PUSH (module 15 CI/CD)        PULL (GitOps)
+  ------------------  ----------------------------  ---------------------------
+  Who applies         the CI runner                 an agent in the cluster
+  Cluster credentials held by CI, outside the       never leave the cluster
+                      cluster
+  Drift               undetected                    continuously corrected
+  Rollback            re-run an older pipeline      git revert
+  Audit               CI logs                       git history + sync history
+  New cluster         re-run every pipeline         point Argo CD at the repo
+
+  THE SECURITY ARGUMENT: with pull, your CI system never holds kubeconfig
+  credentials. A compromised CI pipeline cannot reach the cluster at all.
+
+  WHERE EACH BELONGS: CI builds and tests and pushes the IMAGE (module 15).
+  CD updates the image TAG in git. GitOps deploys it. The pipeline's last
+  step becomes a commit, not a kubectl apply.
