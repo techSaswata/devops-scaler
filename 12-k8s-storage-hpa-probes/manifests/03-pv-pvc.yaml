@@ -1,0 +1,40 @@
+# STATIC provisioning: an administrator creates the PersistentVolume by hand,
+# and a PersistentVolumeClaim binds to it.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: manual-pv
+spec:
+  capacity: { storage: 128Mi }
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain   # keep the data after the PVC is deleted
+  storageClassName: manual                # must match the PVC's storageClassName
+  hostPath:
+    path: /tmp/manual-pv
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: manual-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: manual
+  resources:
+    requests: { storage: 64Mi }           # may be LESS than the PV's capacity
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-user
+  labels: { demo: volumes }
+spec:
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: manual-pvc             # the pod references the CLAIM, not the PV
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh","-c","echo 'data written through the PVC' > /data/persisted.txt; sleep infinity"]
+      volumeMounts: [{ name: data, mountPath: /data }]

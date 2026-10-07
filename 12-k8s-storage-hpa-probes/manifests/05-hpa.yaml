@@ -1,0 +1,54 @@
+# The workload the HPA will scale. php-apache burns CPU on every request, which
+# is what makes the autoscaling observable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hpa-demo
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: hpa-demo } }
+  template:
+    metadata: { labels: { app: hpa-demo } }
+    spec:
+      containers:
+        - name: php-apache
+          image: registry.k8s.io/hpa-example
+          ports: [{ containerPort: 80 }]
+          resources:
+            # requests.cpu is MANDATORY for a CPU-based HPA: the target is a
+            # PERCENTAGE OF THE REQUEST, so with no request there is nothing to
+            # take a percentage of and the HPA reports <unknown>.
+            requests: { cpu: 200m }
+            limits:   { cpu: 500m }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hpa-demo
+spec:
+  selector: { app: hpa-demo }
+  ports: [{ port: 80, targetPort: 80 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hpa-demo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hpa-demo
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50     # scale to keep average CPU near 50% of request
+  behavior:
+    scaleDown:
+      # Default is a 5-minute stabilisation window. Shortened so the scale-down
+      # is observable inside a demo run.
+      stabilizationWindowSeconds: 30

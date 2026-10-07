@@ -1,0 +1,177 @@
+
+=== 1. DEPLOY EVERYTHING ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/12-k8s-storage-hpa-probes/mini-project/manifests.yaml
+namespace/miniproject created
+persistentvolumeclaim/app-data created
+deployment.apps/webapp created
+service/webapp created
+horizontalpodautoscaler.autoscaling/webapp created
+Waiting for deployment "webapp" rollout to finish: 0 of 1 updated replicas are available...
+deployment "webapp" successfully rolled out
+
+$ kubectl get all -n miniproject
+NAME                          READY   STATUS    RESTARTS   AGE
+pod/webapp-6df68846b8-vngpb   1/1     Running   0          7s
+
+NAME             TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+service/webapp   ClusterIP   10.96.181.56   <none>        80/TCP    7s
+
+NAME                     READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/webapp   1/1     1            1           7s
+
+NAME                                DESIRED   CURRENT   READY   AGE
+replicaset.apps/webapp-6df68846b8   1         1         1       7s
+
+NAME                                         REFERENCE           TARGETS              MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/webapp   Deployment/webapp   cpu: <unknown>/50%   1         4         1          7s
+
+=== 2. STORAGE — the PVC was dynamically provisioned and seeded ===
+
+$ kubectl get pvc -n miniproject
+NAME       STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+app-data   Bound    pvc-5dec4b61-6555-4229-8636-5806f91b9f1d   128Mi      RWO            standard       <unset>                 7s
+
+$ kubectl get pv | grep miniproject
+pvc-5dec4b61-6555-4229-8636-5806f91b9f1d   128Mi      RWO            Delete           Bound    miniproject/app-data   standard       <unset>                          4s
+
+$ kubectl logs webapp-6df68846b8-vngpb -n miniproject -c seed
+seeded
+total 4
+-rw-r--r--    1 root     root            52 Oct  7 16:58 index.html
+>> The init container seeded the volume BEFORE nginx started.
+
+$ kubectl exec webapp-6df68846b8-vngpb -n miniproject -- cat /usr/share/nginx/html/index.html
+Defaulted container "web" out of: web, seed (init)
+<h1>mini-project: seeded by the init container</h1>
+
+--- the data SURVIVES a full rollout ---
+$ kubectl exec ... -- append a marker, then restart the deployment
+Defaulted container "web" out of: web, seed (init)
+
+$ kubectl exec webapp-6df68846b8-vngpb -n miniproject -- cat /usr/share/nginx/html/index.html
+Defaulted container "web" out of: web, seed (init)
+<h1>mini-project: seeded by the init container</h1>
+<p>written at 22:28:26 by the first pod</p>
+Waiting for deployment "webapp" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "webapp" rollout to finish: 1 old replicas are pending termination...
+deployment "webapp" successfully rolled out
+new pod: webapp-9f679f46f-f8nzb  (was webapp-6df68846b8-vngpb)
+
+$ kubectl exec webapp-9f679f46f-f8nzb -n miniproject -- cat /usr/share/nginx/html/index.html
+Defaulted container "web" out of: web, seed (init)
+<h1>mini-project: seeded by the init container</h1>
+<p>written at 22:28:26 by the first pod</p>
+>> A DIFFERENT pod, with the SAME data - it re-attached to the same PVC.
+
+=== 3. PROBES ===
+
+$ kubectl get pods -n miniproject -l app=webapp
+NAME                     READY   STATUS    RESTARTS   AGE
+webapp-9f679f46f-f8nzb   1/1     Running   0          5s
+
+$ kubectl describe pod webapp-9f679f46f-f8nzb -n miniproject | grep -E 'Liveness|Readiness|Startup'
+    Liveness:     http-get http://:80/ delay=0s timeout=1s period=10s #success=1 #failure=3
+    Readiness:    http-get http://:80/ delay=0s timeout=1s period=5s #success=1 #failure=3
+    Startup:      http-get http://:80/ delay=0s timeout=1s period=2s #success=1 #failure=30
+
+$ kubectl get endpoints webapp -n miniproject
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME     ENDPOINTS        AGE
+webapp   10.244.1.16:80   13s
+>> The endpoint is present because the readiness probe passes.
+
+=== 4. HPA — baseline ===
+metrics available after 25s
+
+$ kubectl get hpa webapp -n miniproject
+NAME     REFERENCE           TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+webapp   Deployment/webapp   cpu: 1%/50%   1         4         1          34s
+
+$ kubectl top pods -n miniproject
+NAME                     CPU(cores)   MEMORY(bytes)   
+webapp-9f679f46f-f8nzb   1m           5Mi             
+
+=== 5. HPA — under load ===
+Waiting for deployment "loadgen" rollout to finish: 0 of 4 updated replicas are available...
+Waiting for deployment "loadgen" rollout to finish: 1 of 4 updated replicas are available...
+Waiting for deployment "loadgen" rollout to finish: 2 of 4 updated replicas are available...
+Waiting for deployment "loadgen" rollout to finish: 3 of 4 updated replicas are available...
+deployment "loadgen" successfully rolled out
+TIME     TARGET%    REPLICAS   CPU
+t+15s    1%         1          1m
+t+30s    83%        1          83m
+t+45s    255%       2          372m
+t+60s    134%       4          405m
+t+75s    77%        4          294m
+t+90s    72%        4          290m
+t+105s   72%        4          290m
+t+120s   72%        4          288m
+t+135s   72%        4          288m
+t+150s   72%        4          289m
+t+165s   73%        4          292m
+t+180s   72%        4          291m
+t+195s   72%        4          289m
+t+210s   72%        4          288m
+t+225s   72%        4          289m
+t+240s   72%        4          289m
+peak replicas: 4
+
+$ kubectl get hpa webapp -n miniproject
+NAME     REFERENCE           TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+webapp   Deployment/webapp   cpu: 71%/50%   1         4         4          4m40s
+
+$ kubectl get pods -n miniproject -l app=webapp
+NAME                     READY   STATUS    RESTARTS   AGE
+webapp-9f679f46f-f8nzb   1/1     Running   0          4m32s
+webapp-9f679f46f-nm8lq   1/1     Running   0          3m40s
+webapp-9f679f46f-rrbrr   1/1     Running   0          3m55s
+webapp-9f679f46f-zxrg5   1/1     Running   0          3m40s
+
+$ kubectl describe hpa webapp -n miniproject | sed -n '/Events:/,$p' | head -8
+Events:
+  Type     Reason                        Age                    From                       Message
+  ----     ------                        ----                   ----                       -------
+  Warning  FailedGetResourceMetric       4m25s (x2 over 4m40s)  horizontal-pod-autoscaler  failed to get cpu utilization: unable to get metrics for resource cpu: no metrics returned from resource metrics API
+  Warning  FailedComputeMetricsReplicas  4m25s (x2 over 4m40s)  horizontal-pod-autoscaler  invalid metrics (1 invalid out of 1), first error is: failed to get cpu resource metric value: failed to get cpu utilization: unable to get metrics for resource cpu: no metrics returned from resource metrics API
+  Normal   SuccessfulRescale             3m55s                  horizontal-pod-autoscaler  New size: 2; reason: cpu resource utilization (percentage of request) above target
+  Normal   SuccessfulRescale             3m40s                  horizontal-pod-autoscaler  New size: 4; reason: cpu resource utilization (percentage of request) above target
+
+=== 6. ALL REPLICAS SHARE THE SAME PVC ===
+
+$ kubectl get pods -n miniproject -l app=webapp -o custom-columns=POD:.metadata.name,NODE:.spec.nodeName --no-headers
+webapp-9f679f46f-f8nzb   devops-hw-worker
+webapp-9f679f46f-nm8lq   devops-hw-worker
+webapp-9f679f46f-rrbrr   devops-hw-worker
+webapp-9f679f46f-zxrg5   devops-hw-worker
+>> NOTE: accessModes is ReadWriteOnce, which is per-NODE. These replicas
+>> could only all mount it because local-path scheduled them onto the same
+>> node. On a real cluster, scaling a Deployment that shares one RWO volume
+>> will leave pods stuck in ContainerCreating on other nodes - this is why
+>> stateful workloads use a StatefulSet with volumeClaimTemplates instead.
+
+=== 7. TEAR DOWN ===
+
+$ kubectl get all -n miniproject
+NAME                           READY   STATUS        RESTARTS   AGE
+pod/loadgen-6674bdc54d-47nkf   1/1     Terminating   0          4m6s
+pod/loadgen-6674bdc54d-bhsrk   1/1     Terminating   0          4m6s
+pod/loadgen-6674bdc54d-pbns2   1/1     Terminating   0          4m6s
+pod/loadgen-6674bdc54d-w2rkn   1/1     Terminating   0          4m6s
+pod/webapp-9f679f46f-f8nzb     1/1     Running       0          4m32s
+pod/webapp-9f679f46f-nm8lq     1/1     Running       0          3m40s
+pod/webapp-9f679f46f-rrbrr     1/1     Running       0          3m55s
+pod/webapp-9f679f46f-zxrg5     1/1     Running       0          3m40s
+
+NAME             TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+service/webapp   ClusterIP   10.96.181.56   <none>        80/TCP    4m40s
+
+NAME                     READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/webapp   4/4     4            4           4m40s
+
+NAME                                DESIRED   CURRENT   READY   AGE
+replicaset.apps/webapp-6df68846b8   0         0         0       4m40s
+replicaset.apps/webapp-9f679f46f    4         4         4       4m32s
+
+NAME                                         REFERENCE           TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/webapp   Deployment/webapp   cpu: 71%/50%   1         4         4          4m40s

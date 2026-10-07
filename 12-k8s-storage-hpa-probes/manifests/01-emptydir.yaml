@@ -1,0 +1,21 @@
+# emptyDir — scratch space that lives and dies WITH THE POD.
+# Created empty when the pod is scheduled, deleted when the pod is removed.
+# Survives a container RESTART, but not pod deletion or rescheduling.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vol-emptydir
+  labels: { demo: volumes }
+spec:
+  volumes:
+    - name: scratch
+      emptyDir: {}              # medium: Memory would make it a tmpfs (RAM)
+  containers:
+    - name: writer
+      image: busybox:1.36
+      command: ["sh","-c","i=0; while true; do i=$((i+1)); echo \"writer tick $i\" >> /data/log.txt; sleep 2; done"]
+      volumeMounts: [{ name: scratch, mountPath: /data }]
+    - name: reader              # a SECOND container reading the SAME volume
+      image: busybox:1.36
+      command: ["sh","-c","sleep infinity"]
+      volumeMounts: [{ name: scratch, mountPath: /data }]

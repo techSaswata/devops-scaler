@@ -1,0 +1,42 @@
+# A readiness probe that never passes. The pod stays Running with 0/1 READY and
+# is held OUT of the Service endpoints - it is never restarted.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe-never-ready
+  labels: { demo: probes, app: probe-svc }
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      ports: [{ containerPort: 80 }]
+      readinessProbe:
+        httpGet: { path: /not-a-real-path, port: 80 }
+        initialDelaySeconds: 2
+        periodSeconds: 3
+---
+# A liveness probe pointed at a 404. nginx is perfectly healthy; the PROBE is
+# wrong, and it will restart the container anyway.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe-bad-liveness
+  labels: { demo: probes }
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+      livenessProbe:
+        httpGet: { path: /not-a-real-path, port: 80 }
+        initialDelaySeconds: 3
+        periodSeconds: 3
+        failureThreshold: 2
+---
+# A Service selecting both, to prove readiness gates endpoint membership.
+apiVersion: v1
+kind: Service
+metadata:
+  name: probe-svc
+spec:
+  selector: { app: probe-svc }
+  ports: [{ port: 80, targetPort: 80 }]

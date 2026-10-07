@@ -1,0 +1,144 @@
+
+=== 1. ALL THREE PROBES ON A HEALTHY POD ===
+
+$ cat /Users/techsaswata/Downloads/devops-scaler/12-k8s-storage-hpa-probes/manifests/07-probes.yaml | sed -n '/startupProbe/,$p'
+      startupProbe:
+        httpGet: { path: /, port: 80 }
+        failureThreshold: 30
+        periodSeconds: 2            # up to 60s to start
+
+      # READINESS: "can it serve traffic now?" Failing removes it from Service
+      # endpoints. Does NOT restart the container.
+      readinessProbe:
+        httpGet: { path: /, port: 80 }
+        periodSeconds: 5
+        failureThreshold: 3
+
+      # LIVENESS: "is it wedged?" Failing KILLS and restarts the container.
+      livenessProbe:
+        httpGet: { path: /, port: 80 }
+        periodSeconds: 5
+        failureThreshold: 3
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/12-k8s-storage-hpa-probes/manifests/07-probes.yaml
+pod/probes-demo created
+pod/probes-demo condition met
+
+$ kubectl get pod probes-demo
+NAME          READY   STATUS    RESTARTS   AGE
+probes-demo   1/1     Running   0          3s
+
+$ kubectl describe pod probes-demo | grep -E 'Liveness|Readiness|Startup'
+    Liveness:       http-get http://:80/ delay=0s timeout=1s period=5s #success=1 #failure=3
+    Readiness:      http-get http://:80/ delay=0s timeout=1s period=5s #success=1 #failure=3
+    Startup:        http-get http://:80/ delay=0s timeout=1s period=2s #success=1 #failure=30
+
+  startupProbe    runs FIRST and ALONE. Liveness and readiness are suspended
+                  while it runs. Lets a slow boot take time WITHOUT weakening
+                  the liveness probe for the rest of the pod's life.
+  readinessProbe  "can it serve traffic right now?"
+                  Failing -> removed from Service endpoints. NOT restarted.
+  livenessProbe   "is it wedged?"
+                  Failing -> the kubelet KILLS and restarts the container.
+
+=== 2. READINESS GATES SERVICE ENDPOINTS — proven, not asserted ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/12-k8s-storage-hpa-probes/manifests/08-probe-failures.yaml
+pod/probe-never-ready created
+pod/probe-bad-liveness created
+service/probe-svc created
+
+--- probe-never-ready has a readiness probe pointing at a 404 ---
+
+$ kubectl get pod probe-never-ready
+NAME                READY   STATUS    RESTARTS   AGE
+probe-never-ready   0/1     Running   0          26s
+>> Running, but READY is 0/1, and RESTARTS is 0 - it was NOT restarted.
+
+--- the Service selects it, but it is NOT in the endpoints ---
+
+$ kubectl get svc probe-svc
+NAME        TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+probe-svc   ClusterIP   10.96.252.18   <none>        80/TCP    26s
+
+$ kubectl get endpointslice -l kubernetes.io/service-name=probe-svc -o jsonpath='{range .items[*].endpoints[*]}addr={.addresses[0]} ready={.conditions.ready}{"\n"}{end}'
+addr=10.244.1.12 ready=false
+
+$ kubectl get endpoints probe-svc
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME        ENDPOINTS   AGE
+probe-svc               26s
+>> ENDPOINTS is empty. The pod is alive and the label matches, but an
+>> unready pod is never added - so it simply receives no traffic.
+
+--- a pod spec is IMMUTABLE, so the probe itself cannot be edited ---
+$ kubectl patch pod probe-never-ready ... readinessProbe.httpGet.path=/
+The Pod "probe-never-ready" is invalid: spec: Forbidden: pod updates may not change fields other than `spec.containers[*].image`,`spec.initContainers[*].image`,`spec.activeDeadlineSeconds`,`spec.tolerations` (only additions to existing tolerations),`spec.terminationGracePeriodSeconds` (allow it to be set to 1 if it was previously negative)
+@@ -136,7 +136,7 @@
+    "ReadinessProbe": {
+>> REJECTED. Pod specs are immutable apart from the container image,
+>> tolerations and a couple of other fields. To change a probe you edit
+>> the Deployment template and let it roll out a NEW pod.
+
+--- so instead, make the probed PATH start existing ---
+$ kubectl exec probe-never-ready -- sh -c "echo ok > /usr/share/nginx/html/not-a-real-path"
+>> The probe is unchanged; the URL it checks now returns 200 instead of 404.
+  became Ready after 6s
+
+$ kubectl get pod probe-never-ready
+NAME                READY   STATUS    RESTARTS   AGE
+probe-never-ready   1/1     Running   0          29s
+
+$ kubectl get endpoints probe-svc
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME        ENDPOINTS        AGE
+probe-svc   10.244.1.12:80   29s
+>> The endpoint appeared the moment the pod went Ready. THIS is the
+>> mechanism behind rolling updates with zero downtime: a new pod receives
+>> no traffic until its readiness probe passes.
+
+=== 3. A BAD LIVENESS PROBE RESTARTS A HEALTHY CONTAINER ===
+nginx is fine. The probe points at a 404. Watch the restart count:
+TIME     STATUS       RESTARTS
+t+15s    CrashLoopBackOff 2
+t+30s    Running      4
+t+45s    CrashLoopBackOff 4
+t+60s    CrashLoopBackOff 4
+t+75s    CrashLoopBackOff 4
+t+90s    CrashLoopBackOff 5
+t+105s   CrashLoopBackOff 5
+t+120s   CrashLoopBackOff 5
+
+$ kubectl describe pod probe-bad-liveness | sed -n '/Events:/,$p' | head -10
+Events:
+  Type     Reason     Age                   From               Message
+  ----     ------     ----                  ----               -------
+  Normal   Scheduled  2m32s                 default-scheduler  Successfully assigned default/probe-bad-liveness to devops-hw-worker
+  Normal   Pulled     61s (x6 over 2m31s)   kubelet            Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+  Normal   Created    61s (x6 over 2m31s)   kubelet            Container created
+  Normal   Started    61s (x6 over 2m31s)   kubelet            Container started
+  Warning  Unhealthy  55s (x12 over 2m28s)  kubelet            Liveness probe failed: HTTP probe failed with statuscode: 404
+  Normal   Killing    55s (x6 over 2m25s)   kubelet            Container web failed liveness probe, will be restarted
+  Warning  BackOff    55s (x6 over 2m13s)   kubelet            Back-off restarting failed container web in pod probe-bad-liveness_default(549971fe-cefe-4b65-9067-96c9b4c83807)
+>> 'Liveness probe failed: HTTP probe failed with statuscode: 404'
+>> followed by 'Killing container'. The application never had a problem.
+
+  RULE OF THUMB: liveness GENEROUS, readiness STRICT.
+
+    A liveness probe's remedy is a KILL, so it should only fail when the process
+    is genuinely unrecoverable - a deadlock, not a slow dependency.
+
+    A readiness probe's remedy is to stop sending traffic, which is cheap and
+    reversible, so it can be strict and check dependencies.
+
+  THE CLASSIC OUTAGE: a liveness probe that calls a shared database. The database
+  gets slow, EVERY pod's liveness probe fails at once, Kubernetes restarts the
+  entire fleet simultaneously, and a slow dependency becomes a total outage.
+
+=== 4. CLEAN UP ===
+
+$ kubectl delete pod -l demo=probes --force --grace-period=0
+Warning: Immediate deletion does not wait for confirmation that the running resource has been terminated. The resource may continue to run on the cluster indefinitely.
+pod "probe-bad-liveness" force deleted from default namespace
+pod "probe-never-ready" force deleted from default namespace
+pod "probes-demo" force deleted from default namespace

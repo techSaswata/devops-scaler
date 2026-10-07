@@ -1,0 +1,18 @@
+# Load generator: a tight request loop against the Service, which drives the
+# php-apache pods' CPU up and triggers the HPA.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+spec:
+  replicas: 3                     # three concurrent loopers
+  selector: { matchLabels: { app: load-generator } }
+  template:
+    metadata: { labels: { app: load-generator } }
+    spec:
+      containers:
+        - name: load
+          image: busybox:1.36
+          command: ["sh","-c","while true; do wget -q -O- http://hpa-demo >/dev/null 2>&1; done"]
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }

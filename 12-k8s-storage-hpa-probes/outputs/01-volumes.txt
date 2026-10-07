@@ -1,0 +1,199 @@
+
+=== 1. STORAGECLASSES AVAILABLE ON THIS CLUSTER ===
+
+$ kubectl get storageclass
+NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+standard (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  12m
+>> 'standard' is marked (default): a PVC that names no storageClassName
+>> gets this one. kind uses rancher.io/local-path as its provisioner.
+
+$ kubectl get storageclass standard -o jsonpath='provisioner={.provisioner}  reclaimPolicy={.reclaimPolicy}  volumeBindingMode={.volumeBindingMode}{"\n"}'
+provisioner=rancher.io/local-path  reclaimPolicy=Delete  volumeBindingMode=WaitForFirstConsumer
+>> volumeBindingMode=WaitForFirstConsumer means the volume is NOT created
+>> until a pod actually uses the claim - so it can be placed on the right node.
+
+=== 2. emptyDir — scratch space shared between containers in a pod ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/12-k8s-storage-hpa-probes/manifests/01-emptydir.yaml
+pod/vol-emptydir created
+pod/vol-emptydir condition met
+
+--- the WRITER container writes ---
+
+$ kubectl exec vol-emptydir -c writer -- tail -3 /data/log.txt
+writer tick 2
+writer tick 3
+writer tick 4
+
+--- the READER container sees the SAME file ---
+
+$ kubectl exec vol-emptydir -c reader -- tail -3 /data/log.txt
+writer tick 2
+writer tick 3
+writer tick 4
+>> Two containers, one volume. This is the main use of emptyDir:
+>> passing data between containers in the same pod.
+
+--- lifecycle: it dies WITH THE POD ---
+
+$ kubectl get pod vol-emptydir -o jsonpath='{.spec.volumes[0]}{"\n"}'
+{"emptyDir":{},"name":"scratch"}
+$ kubectl delete pod vol-emptydir && re-apply
+
+$ kubectl exec vol-emptydir -c reader -- cat /data/log.txt | wc -l
+       2
+>> The line count restarted from 1 - the old data is GONE. emptyDir is
+>> created empty when the pod is scheduled and deleted with it.
+
+=== 3. hostPath — a directory from the NODE ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/12-k8s-storage-hpa-probes/manifests/02-hostpath.yaml
+pod/vol-hostpath created
+pod/vol-hostpath condition met
+
+$ kubectl get pod vol-hostpath -o wide
+NAME           READY   STATUS    RESTARTS   AGE   IP           NODE               NOMINATED NODE   READINESS GATES
+vol-hostpath   1/1     Running   0          1s    10.244.1.3   devops-hw-worker   <none>           <none>
+
+$ kubectl exec vol-hostpath -- cat /host/data.txt
+written by vol-hostpath at Wed Oct  7 16:36:08 UTC 2026
+
+--- the file is really on the NODE's filesystem ---
+$ docker exec devops-hw-worker cat /tmp/hostpath-demo/data.txt
+written by vol-hostpath at Wed Oct  7 16:36:08 UTC 2026
+
+--- it SURVIVES pod deletion ---
+$ docker exec devops-hw-worker cat /tmp/hostpath-demo/data.txt   (pod is gone)
+written by vol-hostpath at Wed Oct  7 16:36:08 UTC 2026
+
+  >> BUT the data is tied to THAT ONE NODE. Reschedule the pod onto another
+  >> node and it sees an empty directory - which is why the manifest pins
+  >> nodeName. hostPath is also a security risk: the pod can read the host
+  >> filesystem. Use it for node-level agents (log collectors, monitoring),
+  >> never for application data.
+
+=== 4. PersistentVolume + PersistentVolumeClaim (STATIC provisioning) ===
+
+$ cat /Users/techsaswata/Downloads/devops-scaler/12-k8s-storage-hpa-probes/manifests/03-pv-pvc.yaml | head -22
+# STATIC provisioning: an administrator creates the PersistentVolume by hand,
+# and a PersistentVolumeClaim binds to it.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: manual-pv
+spec:
+  capacity: { storage: 128Mi }
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain   # keep the data after the PVC is deleted
+  storageClassName: manual                # must match the PVC's storageClassName
+  hostPath:
+    path: /tmp/manual-pv
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: manual-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: manual
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/12-k8s-storage-hpa-probes/manifests/03-pv-pvc.yaml
+persistentvolume/manual-pv created
+persistentvolumeclaim/manual-pvc created
+pod/pvc-user created
+pod/pvc-user condition met
+
+
+$ kubectl get pv manual-pv
+NAME        CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                STORAGECLASS   VOLUMEATTRIBUTESCLASS   REASON   AGE
+manual-pv   128Mi      RWO            Retain           Bound    default/manual-pvc   manual         <unset>                          14s
+
+$ kubectl get pvc manual-pvc
+NAME         STATUS   VOLUME      CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+manual-pvc   Bound    manual-pv   128Mi      RWO            manual         <unset>                 14s
+>> STATUS=Bound on both. The claim found a PV that satisfied it:
+>> same storageClassName, compatible accessModes, capacity >= request.
+
+--- note the claim asked for 64Mi but got the whole 128Mi PV ---
+
+$ kubectl get pvc manual-pvc -o jsonpath='requested={.spec.resources.requests.storage}  bound capacity={.status.capacity.storage}{"\n"}'
+requested=64Mi  bound capacity=128Mi
+>> A PVC binds to a WHOLE PV. The extra capacity is not shared out.
+
+
+$ kubectl exec pvc-user -- cat /data/persisted.txt
+data written through the PVC
+
+--- the data OUTLIVES the pod ---
+
+$ kubectl exec pvc-user -- cat /data/persisted.txt
+data written through the PVC
+>> Same content after a full pod delete and recreate.
+
+=== 5. DYNAMIC provisioning — no PV created by hand ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/12-k8s-storage-hpa-probes/manifests/04-dynamic-pvc.yaml
+persistentvolumeclaim/dynamic-pvc created
+pod/dynamic-pvc-user created
+
+--- before a pod consumes it, the claim is PENDING ---
+
+$ kubectl get pvc dynamic-pvc
+NAME          STATUS    VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+dynamic-pvc   Pending                                      standard       <unset>                 2s
+>> WaitForFirstConsumer: the provisioner holds off until a pod is scheduled.
+pod/dynamic-pvc-user condition met
+
+
+$ kubectl get pvc dynamic-pvc
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+dynamic-pvc   Bound    pvc-c1c3f71b-784f-4f43-8608-01da21c5c9b8   100Mi      RWO            standard       <unset>                 4s
+
+--- a PV was created AUTOMATICALLY ---
+
+$ kubectl get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                 STORAGECLASS   VOLUMEATTRIBUTESCLASS   REASON   AGE
+manual-pv                                  128Mi      RWO            Retain           Bound    default/manual-pvc    manual         <unset>                          21s
+pvc-c1c3f71b-784f-4f43-8608-01da21c5c9b8   100Mi      RWO            Delete           Bound    default/dynamic-pvc   standard       <unset>                          2s
+
+$ kubectl get pvc dynamic-pvc -o jsonpath='bound to PV: {.spec.volumeName}{"\n"}'
+bound to PV: pvc-c1c3f71b-784f-4f43-8608-01da21c5c9b8
+
+$ kubectl exec dynamic-pvc-user -- cat /data/hello.txt
+dynamically provisioned
+>> Nobody wrote a PersistentVolume manifest. The StorageClass provisioner
+>> created it on demand. This is how storage works on every cloud:
+>> the provisioner calls the cloud API and attaches a real disk.
+
+=== 6. SUMMARY ===
+
+$ kubectl get pv,pvc
+NAME                                                        CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                 STORAGECLASS   VOLUMEATTRIBUTESCLASS   REASON   AGE
+persistentvolume/manual-pv                                  128Mi      RWO            Retain           Bound    default/manual-pvc    manual         <unset>                          21s
+persistentvolume/pvc-c1c3f71b-784f-4f43-8608-01da21c5c9b8   100Mi      RWO            Delete           Bound    default/dynamic-pvc   standard       <unset>                          2s
+
+NAME                                STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/dynamic-pvc   Bound    pvc-c1c3f71b-784f-4f43-8608-01da21c5c9b8   100Mi      RWO            standard       <unset>                 4s
+persistentvolumeclaim/manual-pvc    Bound    manual-pv                                  128Mi      RWO            manual         <unset>                 21s
+
+  TYPE              LIFETIME                    SCOPE          TYPICAL USE
+  ---------------   -------------------------   ------------   --------------------------
+  emptyDir          dies with the POD           one pod        scratch, sharing between
+                                                               containers in a pod
+  hostPath          survives the pod            ONE NODE       node agents, log collectors
+  PV + PVC static   survives the pod            cluster        admin-provisioned storage
+  PV + PVC dynamic  survives the pod            cluster        the normal production case
+  ConfigMap/Secret  as long as the object       cluster        configuration (module 11)
+
+  THE KEY SEPARATION:
+    PersistentVolume       the actual storage   -> the ADMINISTRATOR's concern
+    PersistentVolumeClaim  a request for storage -> the DEVELOPER's concern
+    StorageClass           how to create one on demand
+
+  A pod never names a PV. It names a CLAIM. That indirection is what lets the
+  same manifest run on kind, on EKS and on bare metal unchanged.
+
+  RECLAIM POLICY (on the PV):
+    Retain  keep the data after the PVC is deleted - manual cleanup
+    Delete  delete the underlying storage too (the cloud default)

@@ -1,0 +1,93 @@
+# ============================================================================
+#  SESSION 13 MINI PROJECT
+#  A single workload that uses every concept from this module at once:
+#    - its own namespace
+#    - a dynamically provisioned PVC for persistent data
+#    - startup, readiness and liveness probes
+#    - resource requests/limits (required for the HPA to work)
+#    - a ClusterIP Service
+#    - an HPA driven by CPU
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: miniproject
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-data
+  namespace: miniproject
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard        # dynamic provisioning
+  resources:
+    requests: { storage: 128Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  namespace: miniproject
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: webapp } }
+  template:
+    metadata: { labels: { app: webapp } }
+    spec:
+      # An init container seeds the persistent volume before the app starts.
+      initContainers:
+        - name: seed
+          image: busybox:1.36
+          command: ["sh","-c","[ -f /data/index.html ] || echo '<h1>mini-project: seeded by the init container</h1>' > /data/index.html; echo 'seeded'; ls -l /data"]
+          volumeMounts: [{ name: data, mountPath: /data }]
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80 }]
+          volumeMounts:
+            - { name: data, mountPath: /usr/share/nginx/html }
+
+          startupProbe:
+            httpGet: { path: /, port: 80 }
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /, port: 80 }
+            periodSeconds: 10
+
+          resources:
+            requests: { cpu: 100m, memory: 32Mi }   # REQUIRED for the HPA
+            limits:   { cpu: 300m, memory: 128Mi }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: app-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp
+  namespace: miniproject
+spec:
+  selector: { app: webapp }
+  ports: [{ port: 80, targetPort: 80 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: webapp
+  namespace: miniproject
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: webapp }
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 50 }
+  behavior:
+    scaleDown: { stabilizationWindowSeconds: 30 }
