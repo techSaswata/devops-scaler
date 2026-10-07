@@ -90,9 +90,15 @@ jobs:
       - name: Validate the manifests
         run: |
           cd 15-cicd-github-actions/k8s
-          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          ./kubectl apply --dry-run=client -f deployment.yaml -f service.yaml
+          # NOTE: `kubectl apply --dry-run=client` is NOT usable here. Despite the
+          # name it still contacts a cluster to download the OpenAPI schema, and
+          # a GitHub-hosted runner has none:
+          #   failed to download openapi: dial tcp [::1]:8080: connect: connection refused
+          # kubeconform validates against the published Kubernetes JSON schemas
+          # entirely offline, which is what a CI runner actually needs.
+          curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            | tar xz kubeconform
+          ./kubeconform -strict -summary deployment.yaml service.yaml
 
       - name: Note on the real deploy step
         run: |
