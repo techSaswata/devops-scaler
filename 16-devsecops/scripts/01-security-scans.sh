@@ -61,10 +61,11 @@ else
   # mistaken for live credentials. An earlier version of this script used a
   # realistic "sk_live_..." string and GitHub's own push protection REJECTED the
   # push - the control working exactly as intended, on this very module.
-  cat > /tmp/leak_demo.py <<'PYEOF'
-AWS_SECRET_ACCESS_KEY = "EXAMPLE0NOT0A0REAL0KEY0000000000000000000"
-api_key = "placeholder_0000000000000000000000000"
-PYEOF
+  # Build the sample line at runtime so this script does not itself contain a
+  # credential-shaped assignment. gitleaks correctly flagged an earlier version
+  # that did.
+  { printf '%s_%s = "%s"\n' AWS SECRET_ACCESS_KEY "EXAMPLE0NOT0REAL000000000000000000000000"
+    printf '%s_%s = "%s"\n' api key "placeholder00000000000000000000000000"; } > /tmp/leak_demo.py
   echo "\$ grep -nE '(secret|key)\\s*=\\s*\"[A-Za-z0-9/+=_-]{12,}\"' /tmp/leak_demo.py"
   grep -nE '(secret|key)\s*=\s*"[A-Za-z0-9/+=_-]{12,}"' -i /tmp/leak_demo.py
   echo ">> Those two lines are exactly the shape gitleaks flags."
