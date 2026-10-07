@@ -27,6 +27,7 @@ paths = [
   # to nothing. Allowlisted by exact path rather than by rule, so the rule
   # still protects every other file.
   '''11-k8s-ingress-configmaps-secrets/manifests/02-secret\.yaml$''',
+  '''11-k8s-ingress-configmaps-secrets/scripts/01-configmaps-secrets\.sh$''',
 
   # This module's own scan script GENERATES credential-shaped sample lines to
   # show what the scanner looks for. Allowlisted by exact path.
