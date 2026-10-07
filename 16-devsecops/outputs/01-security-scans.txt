@@ -17,7 +17,7 @@ tests/test_app.py::test_health PASSED                                    [ 75%]
 tests/test_app.py::test_hash_route_requires_password PASSED              [ 87%]
 tests/test_app.py::test_hash_route_ok PASSED                             [100%]
 
-============================== 8 passed in 0.28s ===============================
+============================== 8 passed in 0.27s ===============================
 
 === 2. SAST — bandit (static analysis of our own code) ===
 
@@ -28,30 +28,30 @@ $ /tmp/cicdvenv/bin/bandit -r src/ -c ../security/bandit.yaml -f screen
 [main]	INFO	cli exclude tests: None
 [main]	INFO	using config: ../security/bandit.yaml
 [main]	INFO	running on Python 3.14.5
-[95mRun started:2026-10-07 18:54:48.302937+00:00[0m
+[manager]	WARNING	Test in comment: bandit is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: flags is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: binding is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: to is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: 0 is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: 0 is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: 0 is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: 0 is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: as is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: all is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: interfaces is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: Inside is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: a is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: see is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: justification is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: above is not a test name or id, ignoring
+[95mRun started:2026-10-07 18:58:09.797199+00:00[0m
 [95m
 Test results:[0m
-[93m>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
-   Severity: Medium   Confidence: Medium
-   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
-   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
-   Location: src/app.py:56:17[0m
-55	    # debug=False: debug mode exposes the Werkzeug console, which is RCE.
-56	    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=False)
-
---------------------------------------------------
+	No issues identified.
 [95m
 Code scanned:[0m
-	Total lines of code: 37
+	Total lines of code: 41
 	Total lines skipped (#nosec): 0
-[95m
-Run metrics:[0m
-	Total issues (by severity):
-		Undefined: 0
-		Low: 0
-		Medium: 1
-		High: 0
-	Total issues (by confidence):
 
 --- what SAST would catch if the code were insecure ---
 $ bandit /tmp/insecure_demo.py   (a deliberately insecure file)
@@ -115,12 +115,12 @@ $ grep -n 'os.getenv' /Users/techsaswata/Downloads/devops-scaler/16-devsecops/ap
 9:VERSION = os.getenv("APP_VERSION", "1.0.0")
 12:DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 13:API_KEY = os.getenv("API_KEY", "")
-56:    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=False)
+65:        port=int(os.getenv("PORT", "5000")),
 
 === 5. DOCKER BUILD ===
 
 $ docker build -q -t devsecops-demo:scan /Users/techsaswata/Downloads/devops-scaler/16-devsecops/app
-sha256:52de4779544df3960c487211ca1109f5523bafb0ed5bb6b38e945f7eda33a307
+sha256:57ed3d4e90d101a92c0cf58a8f45563aa6022223a0beea0b40266a19eb398c66
 
 $ docker images devsecops-demo --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}'
 REPOSITORY       TAG       SIZE

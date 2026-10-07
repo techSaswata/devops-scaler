@@ -53,4 +53,15 @@ def hash_route():
 
 if __name__ == "__main__":
     # debug=False: debug mode exposes the Werkzeug console, which is RCE.
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=False)
+    #
+    # nosec B104: bandit flags binding to 0.0.0.0 as "all interfaces". Inside a
+    # container that is REQUIRED - binding 127.0.0.1 would make the app
+    # unreachable from the Service, because the container has its own loopback.
+    # Network exposure is controlled by the Kubernetes Service and NetworkPolicy,
+    # not by the bind address. Suppressed deliberately, with justification,
+    # rather than by disabling the whole check.
+    app.run(
+        host="0.0.0.0",  # nosec B104 - see justification above
+        port=int(os.getenv("PORT", "5000")),
+        debug=False,
+    )

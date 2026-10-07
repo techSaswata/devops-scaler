@@ -51,8 +51,9 @@ jobs:
       - run: pip install bandit
       - name: Scan source for insecure patterns
         run: |
-          bandit -r src/ -c ../security/bandit.yaml -f screen
-          # Separate machine-readable report for the artifact.
+          # bandit exits non-zero on ANY finding, including LOW. The gate below
+          # is what decides pass/fail, so this step only reports.
+          bandit -r src/ -c ../security/bandit.yaml -f screen || true
           bandit -r src/ -c ../security/bandit.yaml -f json -o bandit-report.json || true
       - name: Fail on HIGH severity findings
         run: |
@@ -77,7 +78,7 @@ jobs:
           pip install pip-audit
           pip-audit -r requirements.txt --desc || echo "::warning::pip-audit reported findings"
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: 16-devsecops/app
@@ -93,11 +94,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }   # full history - secrets hide in old commits
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_CONFIG: 16-devsecops/security/.gitleaks.toml
+      - name: Install and run gitleaks
+        # The official action requires a licence key for organisation accounts
+        # and hides its failure reason. Running the binary directly is simpler
+        # and the output is visible in the log.
+        run: |
+          VER=$(curl -sL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep -oP '"tag_name": "v\K[^"]+')
+          curl -sL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" | tar xz gitleaks
+          ./gitleaks detect \
+            --source . \
+            --config 16-devsecops/security/.gitleaks.toml \
+            --redact --verbose --no-banner \
+            --report-format json --report-path gitleaks-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: secret-scan-report, path: gitleaks-report.json, retention-days: 7 }
 
   # ===================== DOCKER BUILD + IMAGE SCAN ========================
   image-scan:
@@ -117,7 +128,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: devsecops-demo:scan
           severity: HIGH,CRITICAL
@@ -125,7 +136,7 @@ jobs:
           exit-code: '1'          # the gate
           format: table
       - name: Trivy SBOM
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: devsecops-demo:scan
           format: cyclonedx
@@ -196,7 +207,7 @@ jobs:
           curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
           ./kubeconform -strict -summary deployment.yaml
       - name: Scan the manifests for misconfiguration
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: 16-devsecops/k8s
