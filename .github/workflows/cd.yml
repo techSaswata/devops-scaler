@@ -55,11 +55,22 @@ jobs:
             type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Set up QEMU
+        # Required to build for an architecture the runner is not. GitHub-hosted
+        # runners are amd64, so arm64 layers are emulated.
+        uses: docker/setup-qemu-action@v3
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: 15-cicd-github-actions/app
           push: true
+          # MULTI-ARCH. Without this the image is amd64-only and cannot be
+          # pulled on an Apple Silicon machine:
+          #   no matching manifest for linux/arm64/v8 in the manifest list entries
+          # That is a real failure this pipeline hit before the platforms line
+          # was added.
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
