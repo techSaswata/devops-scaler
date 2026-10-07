@@ -1,0 +1,38 @@
+# Alerting rules, expressed as a PrometheusRule CRD. The operator picks these
+# up and loads them into Prometheus automatically.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: demo-alerts
+  namespace: monitoring
+  labels: { release: monitoring }
+spec:
+  groups:
+    - name: demo-app
+      rules:
+        # An alert that SHOULD fire: the app returns 500s about 5% of the time.
+        - alert: DemoHighErrorRate
+          expr: |
+            sum(rate(demo_requests_total{code="500"}[2m]))
+              / sum(rate(demo_requests_total[2m])) > 0.02
+          for: 1m
+          labels: { severity: warning }
+          annotations:
+            summary: "Demo app 5xx rate above 2%"
+            description: "{{ $value | humanizePercentage }} of requests are failing."
+
+        # An alert that should NOT fire while the app is healthy - included so
+        # the difference between firing and inactive is visible.
+        - alert: DemoAppDown
+          expr: up{job="metrics-app"} == 0
+          for: 1m
+          labels: { severity: critical }
+          annotations:
+            summary: "Demo app is not scrapeable"
+
+        - alert: DemoHighLatency
+          expr: demo_request_latency_seconds > 0.5
+          for: 2m
+          labels: { severity: warning }
+          annotations:
+            summary: "Demo app average latency above 500ms"

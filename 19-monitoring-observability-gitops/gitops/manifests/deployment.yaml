@@ -1,0 +1,57 @@
+# The DESIRED STATE, declared in git. Argo CD continuously reconciles the
+# cluster against whatever this file says. Nobody runs kubectl apply.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitops-demo
+  labels: { app: gitops-demo }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: gitops-demo } }
+  template:
+    metadata: { labels: { app: gitops-demo } }
+    spec:
+      volumes:
+        - name: html
+          configMap: { name: gitops-demo }
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80, name: http }]
+          volumeMounts: [{ name: html, mountPath: /usr/share/nginx/html }]
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits:   { cpu: 100m, memory: 64Mi }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitops-demo
+data:
+  index.html: |
+    <!doctype html><html><head><meta charset="utf-8"><title>GitOps Demo</title></head>
+    <body style="font-family:-apple-system,sans-serif;background:#0f1117;color:#e6e9f0;
+                 display:grid;place-items:center;min-height:100vh;margin:0">
+      <div style="border:1px solid #252a38;background:#171a23;border-radius:16px;padding:44px 52px">
+        <div style="display:inline-block;background:rgba(239,110,60,.14);
+                    border:1px solid rgba(239,110,60,.35);color:#ef6e3c;padding:6px 12px;
+                    border-radius:999px;font-size:12px;font-weight:600;letter-spacing:.08em;
+                    text-transform:uppercase;margin-bottom:20px">Argo CD</div>
+        <h1 style="margin:0 0 10px">Deployed by GitOps</h1>
+        <p style="color:#8b93a7;margin:0">Nobody ran <code style="color:#ef6e3c">kubectl apply</code>.
+           Argo CD pulled this from git.</p>
+        <p style="margin-top:24px;padding-top:18px;border-top:1px solid #252a38;
+                  color:#8b93a7;font-size:13px">replicas: 2 &middot; Saswata Das &middot; 24BCS10248</p>
+      </div>
+    </body></html>
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitops-demo
+spec:
+  selector: { app: gitops-demo }
+  ports: [{ port: 80, targetPort: http, name: http }]
