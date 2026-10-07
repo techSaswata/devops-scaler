@@ -66,8 +66,8 @@ kubectl create namespace $NS >/dev/null
 echo "--- the Secret the chart REFERENCES but does not contain ---"
 echo "\$ kubectl create secret generic task-api-secret --from-literal=..."
 kubectl $H create secret generic task-api-secret \
-  --from-literal=DB_PASSWORD='supplied-at-deploy-time' \
-  --from-literal=API_KEY='supplied-at-deploy-time' >/dev/null
+  --from-literal=DB_PASSWORD="$(openssl rand -hex 12)" \
+  --from-literal=API_KEY="$(openssl rand -hex 12)" >/dev/null
 echo
 runfull "helm install taskapi $C $H --wait --timeout 5m"
 run "helm list $H"

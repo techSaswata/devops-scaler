@@ -183,8 +183,8 @@ echo
 echo "--- the Secret Argo CD must NOT own, created out of band first ---"
 kubectl create namespace $GNS >/dev/null 2>&1
 kubectl -n $GNS create secret generic task-api-secret \
-  --from-literal=DB_PASSWORD='supplied-at-deploy-time' \
-  --from-literal=API_KEY='supplied-at-deploy-time' >/dev/null 2>&1
+  --from-literal=DB_PASSWORD="$(openssl rand -hex 12)" \
+  --from-literal=API_KEY="$(openssl rand -hex 12)" >/dev/null 2>&1
 echo "\$ kubectl -n $GNS create secret generic task-api-secret --from-literal=..."
 run "kubectl get secret task-api-secret -n $GNS"
 echo

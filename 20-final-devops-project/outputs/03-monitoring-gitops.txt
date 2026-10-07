@@ -1,0 +1,138 @@
+
+=== 0. PORT-FORWARD PROMETHEUS ===
+Prometheus API ready after ~2s
+
+$ curl -s http://localhost:9090/api/v1/status/buildinfo | python3 -m json.tool | head -8
+{
+    "status": "success",
+    "data": {
+        "version": "3.15.0",
+        "revision": "5241a27fe3c6983549fccc32f6e65917408c63cd",
+        "branch": "HEAD",
+        "buildUser": "root@4635dd007a60",
+        "buildDate": "20260925-07:36:49",
+
+=== 1. THE SERVICEMONITOR IS ACTUALLY BEING HONOURED ===
+
+$ kubectl get servicemonitor,prometheusrule -n finalproject
+NAME                                            AGE
+servicemonitor.monitoring.coreos.com/task-api   14m
+
+NAME                                                   AGE
+prometheusrule.monitoring.coreos.com/task-api-alerts   14m
+
+A ServiceMonitor that exists is not the same as a target being scraped.
+Asking Prometheus which targets it really has:
+
+$ GET http://localhost:9090/api/v1/targets
+  job=task-api   health=up    url=http://10.244.1.93:8000/metrics
+>> health=up: Prometheus found the Service via the ServiceMonitor,
+>> resolved its 'http' port, and is scraping /metrics every 15s.
+
+=== 2. METRICS - the application's own counters ===
+$ promql: taskapi_requests_total
+  task-api-769d77f66c-pknzm                      300
+$ promql: taskapi_errors_total
+  task-api-769d77f66c-pknzm                      0
+$ promql: taskapi_tasks_created_total
+  task-api-769d77f66c-pknzm                      0
+$ promql: taskapi_uptime_seconds
+  task-api-769d77f66c-pknzm                      893.6
+
+--- the counters MOVE - 20 more requests, then re-query ---
+requests_total before: 300
+sent 20 requests
+waiting 20s for the next scrape (interval is 15s)...
+requests_total after:  330
+>> delta +30 -- Prometheus observed the traffic.
+
+=== 3. CPU AND MEMORY UTILISATION - from cAdvisor, not the app ===
+$ promql: sum(rate(container_cpu_usage_seconds_total{namespace="finalproject",container="api"}[2m])) by (pod)
+  task-api-769d77f66c-pknzm                      0.008563643839749837
+$ promql: sum(container_memory_working_set_bytes{namespace="finalproject",container="api"}) by (pod)
+  task-api-769d77f66c-pknzm                      13996032
+>> CPU in cores (0.001 = 0.1% of one core), memory in bytes.
+$ promql: kube_pod_container_status_restarts_total{namespace="finalproject"}
+  task-api-769d77f66c-pknzm                      0
+$ promql: kube_pod_status_phase{namespace="finalproject",phase="Running"}
+  task-api-769d77f66c-pknzm                      1
+
+=== 4. APPLICATION HEALTH AS A METRIC ===
+$ promql: up{job="task-api"}
+  task-api-769d77f66c-pknzm                      1
+>> up is synthetic: Prometheus writes 1 when the scrape succeeded. It is
+>> the signal behind the TaskApiDown alert, and it works even when the
+>> app is too broken to report anything about itself.
+
+=== 5. LOGS ===
+
+$ kubectl logs task-api-769d77f66c-pknzm -n finalproject --tail=5
+>> Quiet by design: the handler suppresses per-request logging, so the
+>> request stream is observed through metrics instead. What WOULD appear
+>> here is a Python traceback, which is the thing worth alerting on.
+
+--- the previous container's logs, for a crash that already happened ---
+$ kubectl logs task-api-769d77f66c-pknzm -n finalproject --previous
+Error from server (BadRequest): previous terminated container "api" in pod "task-api-769d77f66c-pknzm" not found
+>> No previous container: this pod has never restarted. That is the
+>> first command to reach for on a CrashLoopBackOff, because the live
+>> container is the one that has not failed yet.
+
+=== 6. ALERTS - the rules Prometheus loaded from the PrometheusRule CRD ===
+$ GET http://localhost:9090/api/v1/rules
+  group: task-api (file: finalproject-task-api-alerts-a55c9a82-871d-4d15-8512-cb4f3222b91d.yaml )
+    TaskApiDown                state=inactive for=60
+    TaskApiHighErrorRate       state=inactive for=120
+    TaskApiPodRestarting       state=inactive for=300
+>> The CRD was translated into real loaded rules, each with a state.
+
+--- FIRE TaskApiHighErrorRate on purpose ---
+expr: sum(rate(taskapi_errors_total[5m])) / sum(rate(taskapi_requests_total[5m])) > 0.10, for: 2m
+
+Driving 400 requests to a path that does not exist, so errors_total rises
+and the ratio crosses 10%:
+got 400 404s
+
+Now watching the alert's state change. inactive -> pending (condition
+true, 'for' not yet elapsed) -> firing. Sampling every 15s:
+  t+15s  ratio=0.000   state=inactive
+  t+30s  ratio=0.747   state=inactive
+  t+45s  ratio=0.748   state=inactive
+  t+60s  ratio=0.749   state=inactive
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+    d=json.load(sys.stdin)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 298, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 298, in load
+    return loads(fp.read(),
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+  t+75s  ratio=        state=
+Traceback (most recent call last):
+  File "<frozen importlib._bootstrap>", line 1371, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1333, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 1267, in _find_spec
+  File "<frozen importlib._bootstrap_external>", line 1292, in find_spec
+  File "<frozen importlib._bootstrap_external>", line 1264, in _get_spec
+  File "<frozen importlib._bootstrap_external>", line 1243, in _path_importer_cache
+InterruptedError: [Errno 4] Interrupted system call

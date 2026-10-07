@@ -7,7 +7,18 @@ useDefault = true          # inherit gitleaks' built-in rule set
 [[rules]]
 id = "generic-api-key-assignment"
 description = "Hard-coded API key or password assignment"
-regex = '''(?i)(api[_-]?key|secret|passwd|password|token)\s*[:=]\s*["'][A-Za-z0-9/+=_\-]{12,}["']'''
+# The capture group is the VALUE, not the label, and secretGroup points at it.
+#
+# This was wrong at first and the mistake was worth keeping a note about. The
+# original regex captured the label -- (api_key|secret|password|...) -- so
+# gitleaks treated "PASSWORD" as the secret. Two things followed. The allowlist
+# could not be written against the real value, because that was not what the
+# rule reported. Worse, `--redact` dutifully hid the label and printed the
+# value: findings came out as REDACTED='supplied-at-deploy-time'. A redaction
+# that leaks the thing it is redacting is worse than no redaction, because it
+# is trusted. Hence the non-capturing (?:...) for the label and secretGroup = 1.
+regex = '''(?i)(?:api[_-]?key|secret|passwd|password|token)\s*[:=]\s*["']([A-Za-z0-9/+=_\-]{12,})["']'''
+secretGroup = 1
 tags = ["key", "generic"]
 
 [allowlist]
@@ -32,4 +43,18 @@ paths = [
   # This module's own scan script GENERATES credential-shaped sample lines to
   # show what the scanner looks for. Allowlisted by exact path.
   '''16-devsecops/scripts/01-security-scans\.sh$'''
+]
+
+# Allowlisted by VALUE rather than by path, which is the narrowest exception
+# available: it excuses exactly one string and nothing else, in any file.
+#
+# One commit created the final project's demo Secret with the literal
+# placeholder 'supplied-at-deploy-time'. It is a placeholder, it was never a
+# credential, and it grants access to nothing. The scripts now generate that
+# value with `openssl rand` instead, so the string no longer exists in the
+# working tree -- but gitleaks scans git HISTORY, so removing it from the files
+# did not clear the finding. The honest choice was between rewriting published
+# history and recording a justified, value-scoped exception; this is the latter.
+regexes = [
+  '''supplied-at-deploy-time'''
 ]

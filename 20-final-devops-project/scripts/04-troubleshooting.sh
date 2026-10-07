@@ -110,8 +110,8 @@ echo "  credentials silently missing. That is the right default."
 step "FIX"
 echo "\$ kubectl create secret generic task-api-secret --from-literal=..."
 kubectl $NS create secret generic task-api-secret \
-  --from-literal=DB_PASSWORD='supplied-at-deploy-time' \
-  --from-literal=API_KEY='supplied-at-deploy-time' 2>&1
+  --from-literal=DB_PASSWORD="$(openssl rand -hex 12)" \
+  --from-literal=API_KEY="$(openssl rand -hex 12)" 2>&1
 sleep 25
 
 step "VERIFY"

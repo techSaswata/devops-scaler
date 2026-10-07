@@ -71,11 +71,17 @@ hr "6. DEPLOY — namespace, config, secret, storage"
 kubectl delete namespace finalproject --ignore-not-found --wait=true >/dev/null 2>&1
 run "kubectl apply -f $D/kubernetes/00-namespace.yaml -f $D/kubernetes/01-config.yaml -f $D/kubernetes/03-storage.yaml"
 echo
+# The value is GENERATED here rather than written as a literal. Two reasons:
+# it makes "supplied at deploy time" literally true, and a line like
+#   --from-literal=DB_PASSWORD='something'
+# is a credential-SHAPED assignment, which gitleaks flags on sight -- correctly,
+# because a scanner cannot tell a placeholder from a real password. Not writing
+# one is better than allowlisting one.
 echo "--- the Secret is created OUT OF BAND, never from a committed file ---"
 echo "\$ kubectl create secret generic task-api-secret --from-literal=..."
 kubectl -n finalproject create secret generic task-api-secret \
-  --from-literal=DB_PASSWORD='supplied-at-deploy-time' \
-  --from-literal=API_KEY='supplied-at-deploy-time' >/dev/null
+  --from-literal=DB_PASSWORD="$(openssl rand -hex 12)" \
+  --from-literal=API_KEY="$(openssl rand -hex 12)" >/dev/null
 run "kubectl get secret task-api-secret $NS"
 
 hr "7. DEPLOY — workload, service, ingress, HPA"

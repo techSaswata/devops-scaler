@@ -99,10 +99,26 @@ jobs:
         # and hides its failure reason. Running the binary directly is simpler
         # and the output is visible in the log.
         run: |
-          VER=$(curl -sL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep -oP '"tag_name": "v\K[^"]+')
-          curl -sL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" | tar xz gitleaks
-          ./gitleaks detect \
-            --source . \
+          set -euo pipefail
+          # PINNED, and both halves of that matter.
+          #
+          # This step used to resolve "latest" from the unauthenticated GitHub
+          # API. That broke a previously green gate twice over. The API call is
+          # rate-limited per runner IP, so on a busy runner it returns a message
+          # instead of a release and ${VER} comes back EMPTY -- the download URL
+          # then 404s, tar is fed an HTML error page, and the step dies in under
+          # a second with no explanation. And gitleaks 8.30 REMOVED the `detect`
+          # subcommand in favour of `git` and `dir`, so even a successful
+          # download would have failed on the next line. A floating version in a
+          # security gate means an upstream release can turn the gate red (or,
+          # worse, change what it finds) with no commit of mine involved.
+          VER=8.30.1
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" | tar xz gitleaks
+          ./gitleaks version
+          # `git` scans HISTORY, which is the point: a secret that was committed
+          # and then deleted is still a leaked secret. `dir` would only see the
+          # current working tree.
+          ./gitleaks git . \
             --config 16-devsecops/security/.gitleaks.toml \
             --redact --verbose --no-banner \
             --report-format json --report-path gitleaks-report.json
