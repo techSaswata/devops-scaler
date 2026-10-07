@@ -1,0 +1,108 @@
+
+=== 1. CI STAGE — LINT (the same command the runner executes) ===
+
+$ /tmp/cicdvenv/bin/flake8 src tests --count --select=E9,F63,F7,F82 --show-source --statistics
+0
+>> No syntax errors or undefined names.
+
+=== 2. CI STAGE — UNIT TESTS ===
+
+$ /tmp/cicdvenv/bin/python -m pytest tests/ -v --tb=short
+============================= test session starts ==============================
+platform darwin -- Python 3.14.5, pytest-8.3.3, pluggy-1.6.0 -- /private/tmp/cicdvenv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/techsaswata/Downloads/devops-scaler/15-cicd-github-actions/app
+plugins: cov-5.0.0
+collecting ... collected 6 items
+
+tests/test_app.py::test_add PASSED                                       [ 16%]
+tests/test_app.py::test_divide PASSED                                    [ 33%]
+tests/test_app.py::test_divide_by_zero_raises PASSED                     [ 50%]
+tests/test_app.py::test_index_route PASSED                               [ 66%]
+tests/test_app.py::test_health_route PASSED                              [ 83%]
+tests/test_app.py::test_add_route PASSED                                 [100%]
+
+============================== 6 passed in 0.11s ===============================
+
+=== 3. CI STAGE — DOCKER BUILD ===
+
+$ docker build -q -t cicd-demo:local . 
+sha256:fe1f6e55ec465ddc169101b68a88da740ca6f6b59fe3b9e528e0793960490def
+
+$ docker images cicd-demo --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}'
+REPOSITORY   TAG       SIZE
+cicd-demo    local     210MB
+
+=== 4. CI STAGE — SMOKE TEST THE IMAGE ===
+
+$ docker run -d --name cicd-local -p 5060:5000 cicd-demo:local
+ebf304a3c769efefaad45697e41f56094a3410705066ccb1adc94a709c762914
+healthy after 2s
+
+$ curl -s http://localhost:5060/
+{"app":"cicd-demo","status":"ok","version":"1.0.0"}
+
+$ curl -s http://localhost:5060/health
+{"status":"healthy"}
+
+$ curl -s http://localhost:5060/add/2/3
+{"result":5}
+
+=== 5. CD STAGE — THE IMAGE PUBLISHED BY THE REAL PIPELINE ===
+>> This image was built and pushed by the CD workflow on GitHub's runners,
+>> not locally. Pulling it here proves the registry step worked.
+
+$ docker pull -q ghcr.io/techsaswata/devops-scaler/cicd-demo:latest
+ghcr.io/techsaswata/devops-scaler/cicd-demo:latest
+
+$ docker manifest inspect ghcr.io/techsaswata/devops-scaler/cicd-demo:latest  (platforms)
+    linux/amd64
+    linux/arm64
+>> Multi-arch. The first CD run produced an amd64-only image which could
+>> not be pulled on this arm64 machine - adding QEMU and a platforms list
+>> fixed it.
+
+=== 6. DEPLOY THE PUBLISHED IMAGE TO KUBERNETES ===
+
+$ grep -A1 'image:' /tmp/cicd-deploy.yaml | head -3
+          image: ghcr.io/techsaswata/devops-scaler/cicd-demo:latest
+          ports: [{ containerPort: 5000, name: http }]
+
+$ kubectl apply -n cicd -f /tmp/cicd-deploy.yaml -f /Users/techsaswata/Downloads/devops-scaler/15-cicd-github-actions/k8s/service.yaml
+deployment.apps/cicd-demo created
+service/cicd-demo created
+Waiting for deployment "cicd-demo" rollout to finish: 0 of 2 updated replicas are available...
+Waiting for deployment "cicd-demo" rollout to finish: 1 of 2 updated replicas are available...
+deployment "cicd-demo" successfully rolled out
+
+$ kubectl get all -n cicd
+NAME                             READY   STATUS    RESTARTS   AGE
+pod/cicd-demo-868cd77889-hxl2c   1/1     Running   0          2m13s
+pod/cicd-demo-868cd77889-j9gx7   1/1     Running   0          2m13s
+
+NAME                TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+service/cicd-demo   ClusterIP   10.96.234.178   <none>        80/TCP    2m13s
+
+NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/cicd-demo   2/2     2            2           2m13s
+
+NAME                                   DESIRED   CURRENT   READY   AGE
+replicaset.apps/cicd-demo-868cd77889   2         2         2       2m13s
+
+--- reach the deployed app through its Service ---
+$ kubectl exec cicd-client -n cicd -- wget -qO- http://cicd-demo/
+{"app":"cicd-demo","status":"ok","version":"1.0.0"}
+
+$ kubectl exec cicd-client -n cicd -- wget -qO- http://cicd-demo/add/7/5
+{"result":12}
+
+
+>> The image built on a GitHub runner, pushed to GHCR, and pulled by a
+>> Kubernetes cluster is now serving traffic. That is the complete
+>> CI -> CD -> registry -> deploy loop.
+
+$ kubectl get pods -n cicd -o wide
+NAME                         READY   STATUS    RESTARTS   AGE     IP            NODE                NOMINATED NODE   READINESS GATES
+cicd-client                  1/1     Running   0          1s      10.244.1.60   devops-hw-worker    <none>           <none>
+cicd-demo-868cd77889-hxl2c   1/1     Running   0          2m14s   10.244.1.59   devops-hw-worker    <none>           <none>
+cicd-demo-868cd77889-j9gx7   1/1     Running   0          2m14s   10.244.3.48   devops-hw-worker2   <none>           <none>
