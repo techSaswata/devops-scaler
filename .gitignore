@@ -6,7 +6,7 @@ target/
 __pycache__/
 .tmp/
 
-# assignment source — kept locally, never published
+# kept locally, never published
 docs/
 
 # local tooling — not part of the submission
