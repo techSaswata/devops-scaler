@@ -16,44 +16,44 @@ $ curl -s http://localhost:9090/api/v1/status/buildinfo | python3 -m json.tool |
 
 $ kubectl get servicemonitor,prometheusrule -n finalproject
 NAME                                            AGE
-servicemonitor.monitoring.coreos.com/task-api   14m
+servicemonitor.monitoring.coreos.com/task-api   29m
 
 NAME                                                   AGE
-prometheusrule.monitoring.coreos.com/task-api-alerts   14m
+prometheusrule.monitoring.coreos.com/task-api-alerts   29m
 
 A ServiceMonitor that exists is not the same as a target being scraped.
 Asking Prometheus which targets it really has:
 
 $ GET http://localhost:9090/api/v1/targets
-  job=task-api   health=up    url=http://10.244.1.93:8000/metrics
+  job=task-api   health=up    url=http://10.244.1.15:8000/metrics
 >> health=up: Prometheus found the Service via the ServiceMonitor,
 >> resolved its 'http' port, and is scraping /metrics every 15s.
 
 === 2. METRICS - the application's own counters ===
 $ promql: taskapi_requests_total
-  task-api-769d77f66c-pknzm                      300
+  task-api-769d77f66c-pknzm                      115
 $ promql: taskapi_errors_total
   task-api-769d77f66c-pknzm                      0
 $ promql: taskapi_tasks_created_total
   task-api-769d77f66c-pknzm                      0
 $ promql: taskapi_uptime_seconds
-  task-api-769d77f66c-pknzm                      893.6
+  task-api-769d77f66c-pknzm                      345.6
 
 --- the counters MOVE - 20 more requests, then re-query ---
-requests_total before: 300
+requests_total before: 115
 sent 20 requests
 waiting 20s for the next scrape (interval is 15s)...
-requests_total after:  330
+requests_total after:  145
 >> delta +30 -- Prometheus observed the traffic.
 
 === 3. CPU AND MEMORY UTILISATION - from cAdvisor, not the app ===
 $ promql: sum(rate(container_cpu_usage_seconds_total{namespace="finalproject",container="api"}[2m])) by (pod)
-  task-api-769d77f66c-pknzm                      0.008563643839749837
+  task-api-769d77f66c-pknzm                      0.0007681276860994071
 $ promql: sum(container_memory_working_set_bytes{namespace="finalproject",container="api"}) by (pod)
-  task-api-769d77f66c-pknzm                      13996032
+  task-api-769d77f66c-pknzm                      15994880
 >> CPU in cores (0.001 = 0.1% of one core), memory in bytes.
 $ promql: kube_pod_container_status_restarts_total{namespace="finalproject"}
-  task-api-769d77f66c-pknzm                      0
+  task-api-769d77f66c-pknzm                      1
 $ promql: kube_pod_status_phase{namespace="finalproject",phase="Running"}
   task-api-769d77f66c-pknzm                      1
 
@@ -73,7 +73,6 @@ $ kubectl logs task-api-769d77f66c-pknzm -n finalproject --tail=5
 
 --- the previous container's logs, for a crash that already happened ---
 $ kubectl logs task-api-769d77f66c-pknzm -n finalproject --previous
-Error from server (BadRequest): previous terminated container "api" in pod "task-api-769d77f66c-pknzm" not found
 >> No previous container: this pod has never restarted. That is the
 >> first command to reach for on a CrashLoopBackOff, because the live
 >> container is the one that has not failed yet.
@@ -96,43 +95,119 @@ got 400 404s
 Now watching the alert's state change. inactive -> pending (condition
 true, 'for' not yet elapsed) -> firing. Sampling every 15s:
   t+15s  ratio=0.000   state=inactive
-  t+30s  ratio=0.747   state=inactive
-  t+45s  ratio=0.748   state=inactive
-  t+60s  ratio=0.749   state=inactive
-Traceback (most recent call last):
-  File "<string>", line 3, in <module>
-    d=json.load(sys.stdin)
-  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 298, in load
-    return loads(fp.read(),
-        cls=cls, object_hook=object_hook,
-        parse_float=parse_float, parse_int=parse_int,
-        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
-  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 352, in loads
-    return _default_decoder.decode(s)
-           ~~~~~~~~~~~~~~~~~~~~~~~^^^
-  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 345, in decode
-    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
-               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
-  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 363, in raw_decode
-    raise JSONDecodeError("Expecting value", s, err.value) from None
-json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
-Traceback (most recent call last):
-  File "<string>", line 1, in <module>
-  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 298, in load
-    return loads(fp.read(),
-  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 352, in loads
-    return _default_decoder.decode(s)
-  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 345, in decode
-    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
-  File "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 363, in raw_decode
-    raise JSONDecodeError("Expecting value", s, err.value) from None
-json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
-  t+75s  ratio=        state=
-Traceback (most recent call last):
-  File "<frozen importlib._bootstrap>", line 1371, in _find_and_load
-  File "<frozen importlib._bootstrap>", line 1333, in _find_and_load_unlocked
-  File "<frozen importlib._bootstrap>", line 1267, in _find_spec
-  File "<frozen importlib._bootstrap_external>", line 1292, in find_spec
-  File "<frozen importlib._bootstrap_external>", line 1264, in _get_spec
-  File "<frozen importlib._bootstrap_external>", line 1243, in _path_importer_cache
-InterruptedError: [Errno 4] Interrupted system call
+  t+30s  ratio=0.751   state=inactive
+  t+45s  ratio=0.752   state=inactive
+  t+60s  ratio=0.752   state=pending
+  t+75s  ratio=0.752   state=pending
+  t+90s  ratio=0.753   state=pending
+  t+105s ratio=0.753   state=pending
+  t+120s ratio=0.753   state=pending
+  t+135s ratio=0.753   state=pending
+  t+150s ratio=0.753   state=pending
+  t+165s ratio=0.754   state=pending
+  t+180s ratio=0.754   state=firing
+>> FIRING. The rule proved itself end to end.
+
+--- the firing alert as Alertmanager sees it ---
+$ GET http://localhost:9090/api/v1/alerts
+  TaskApiHighErrorRate  state=firing severity=warning
+    since: 2026-10-07T22:37:28.478863239Z
+    summary: Task API error rate above 10%
+
+=== 7. GITOPS - Argo CD takes over ===
+
+$ kubectl get pods -n argocd --no-headers | head -6
+argocd-application-controller-0                     1/1   Running   1 (9m15s ago)   161m
+argocd-applicationset-controller-76fd8cdd4f-jm69l   1/1   Running   1 (9m15s ago)   161m
+argocd-dex-server-66c78cf887-lmrnd                  1/1   Running   1 (9m15s ago)   161m
+argocd-notifications-controller-7fb9868fd6-dswvd    1/1   Running   1 (9m15s ago)   161m
+argocd-redis-6c875cfb6-xmcqj                        1/1   Running   1 (9m15s ago)   146m
+argocd-repo-server-d89c7967d-7hfgm                  1/1   Running   1 (9m15s ago)   161m
+
+--- the Secret Argo CD must NOT own, created out of band first ---
+$ kubectl -n finalproject-gitops create secret generic task-api-secret --from-literal=...
+
+$ kubectl get secret task-api-secret -n finalproject-gitops
+NAME              TYPE     DATA   AGE
+task-api-secret   Opaque   2      0s
+
+
+$ cat /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/gitops/application.yaml | grep -vE '^\s*#|^$' | head -30
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: task-api
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/techSaswata/devops-scaler.git
+    targetRevision: main
+    path: 20-final-devops-project/gitops/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: finalproject-gitops
+  syncPolicy:
+    automated:
+      prune: true      # delete what git no longer declares
+      selfHeal: true   # revert manual kubectl changes
+    syncOptions:
+      - CreateNamespace=true
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/20-final-devops-project/gitops/application.yaml
+application.argoproj.io/task-api created
+
+--- Argo CD pulls from GitHub and reconciles ---
+Nothing below is applied by me. The Application names a repo, a revision
+and a path; the controller clones it and makes the cluster match.
+  t+5s   sync=?          health=?
+  t+10s  sync=Synced     health=Progressing
+  t+15s  sync=Synced     health=Healthy
+
+$ kubectl get application task-api -n argocd
+NAME       SYNC STATUS   HEALTH STATUS
+task-api   Synced        Healthy
+
+$ kubectl get all -n finalproject-gitops
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/task-api-6566f8ff56-ldpll   1/1     Running   0          9s
+pod/task-api-6566f8ff56-s4cst   1/1     Running   0          9s
+
+NAME               TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+service/task-api   ClusterIP   10.96.47.209   <none>        80/TCP    9s
+
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/task-api   2/2     2            2           9s
+
+NAME                                  DESIRED   CURRENT   READY   AGE
+replicaset.apps/task-api-6566f8ff56   2         2         2       9s
+>> These objects were never touched by kubectl. Git declared them.
+
+--- what Argo CD believes it is tracking ---
+
+$ kubectl get application task-api -n argocd -o jsonpath='revision: {.status.sync.revision}{"\n"}repo:     {.spec.source.repoURL}{"\n"}path:     {.spec.source.path}{"\n"}'
+revision: ee0ffe0c3c7f1a3e12602a07b2abc9d38d692c89
+repo:     https://github.com/techSaswata/devops-scaler.git
+path:     20-final-devops-project/gitops/manifests
+
+=== 8. CONTINUOUS RECONCILIATION - drift is corrected, not just detected ===
+git declares replicas: 2. Scaling to 5 by hand is drift. selfHeal should
+undo it without anyone asking.
+
+$ kubectl scale deployment task-api -n finalproject-gitops --replicas=5
+deployment.apps/task-api scaled
+
+Sampling from t+0 so the correction is not missed between samples:
+  t+0s   spec.replicas=5
+  t+2s   spec.replicas=2
+>> Reverted to 2 after ~2s. Argo CD won, as it should.
+
+$ kubectl get deploy task-api -n finalproject-gitops
+NAME       READY   UP-TO-DATE   AVAILABLE   AGE
+task-api   2/2     2            2           12s
+
+$ kubectl get application task-api -n argocd -o jsonpath='sync: {.status.sync.status}  health: {.status.health.status}{"\n"}'
+sync: Synced  health: Healthy
+
+>> The lesson: once GitOps owns a workload, kubectl is no longer a way to
+>> change it. The only durable edit is a commit.

@@ -3,10 +3,11 @@
 #   - an S3 bucket for application artefacts and backups
 #   - an ECR repository for the container image
 #
-# NOTE ON SCOPE: this project is VALIDATED and PLANNED but deliberately NOT
-# applied. Modules 17 and 18 already created and destroyed real AWS resources
-# to demonstrate the apply/destroy workflow; repeating it here would add cost
-# and risk without adding anything new. See the README.
+# This is applied against a real AWS account and then destroyed in the same
+# script -- see scripts/05-terraform.sh and outputs/05-terraform.txt. Every
+# resource inherits Owner = 24BCS10248 from default_tags in providers.tf, which
+# is what makes it possible to prove afterwards that nothing of mine was left
+# behind on a shared account.
 
 data "aws_availability_zones" "available" {
   state = "available"
