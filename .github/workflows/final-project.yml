@@ -23,7 +23,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/task-api
 
 jobs:
   test:
@@ -130,15 +129,30 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The tags come from metadata-action rather than being interpolated by
+      # hand, and that is not a style preference. ${{ github.repository }} is
+      # "techSaswata/devops-scaler" -- with a capital S -- while an OCI
+      # repository name MUST be lowercase. Building the tag manually produced
+      #   invalid tag "ghcr.io/techSaswata/...": repository name must be lowercase
+      # after every security job had already passed. metadata-action lowercases
+      # `images` for you, which is why the CD workflow in module 15 never hit
+      # this.
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/task-api
+          tags: |
+            type=sha,prefix=sha-,format=long
+            type=raw,value=latest
       - uses: docker/build-push-action@v6
         with:
           context: 20-final-devops-project/application
           file: 20-final-devops-project/docker/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
   gitops-update:
     name: Update the GitOps manifest
@@ -150,7 +164,10 @@ jobs:
       - name: Bump the image tag in git
         run: |
           cd 20-final-devops-project/gitops/manifests
-          sed -i "s|image: .*task-api:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}|" deployment.yaml
+          # Lowercased here too, for the same reason as the tags above.
+          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="${{ env.REGISTRY }}/${REPO}/task-api:sha-${{ github.sha }}"
+          sed -i "s|image: .*task-api:.*|image: ${IMAGE}|" deployment.yaml
           echo "--- the pipeline's last step is a COMMIT, not a kubectl apply ---"
           git diff
       # Committing here would make Argo CD pull the new tag and deploy it.
