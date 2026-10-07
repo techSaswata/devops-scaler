@@ -1,0 +1,21 @@
+# BROKEN: the pod references a ConfigMap key that does not exist.
+# Symptom: CreateContainerConfigError.
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: ts-partial-config }
+data:
+  PRESENT_KEY: "value"
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: ts-config-error, labels: { drill: troubleshooting } }
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27-alpine
+      env:
+        - name: MISSING
+          valueFrom:
+            configMapKeyRef:
+              name: ts-partial-config
+              key: ABSENT_KEY        # BUG: this key is not in the ConfigMap

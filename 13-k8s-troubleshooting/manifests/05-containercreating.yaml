@@ -1,0 +1,13 @@
+# BROKEN: the pod mounts a Secret that does not exist.
+# Symptom: stuck in ContainerCreating (NOT Pending - it was scheduled fine).
+apiVersion: v1
+kind: Pod
+metadata: { name: ts-containercreating, labels: { drill: troubleshooting } }
+spec:
+  volumes:
+    - name: creds
+      secret: { secretName: ts-missing-secret }
+  containers:
+    - name: app
+      image: nginx:1.27-alpine
+      volumeMounts: [{ name: creds, mountPath: /etc/creds }]

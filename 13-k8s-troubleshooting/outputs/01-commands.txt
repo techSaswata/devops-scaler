@@ -1,0 +1,237 @@
+
+=== 1. kubectl get — what IS there? ===
+
+$ kubectl get pods
+NAME                        READY   STATUS    RESTARTS   AGE
+cmd-demo                    1/1     Running   0          0s
+dynamic-pvc-user            1/1     Running   0          51m
+hpa-demo-6c694fbb69-xtlpr   1/1     Running   0          48m
+pvc-user                    1/1     Running   0          51m
+
+$ kubectl get pods -o wide
+NAME                        READY   STATUS    RESTARTS   AGE   IP            NODE                NOMINATED NODE   READINESS GATES
+cmd-demo                    1/1     Running   0          0s    10.244.1.22   devops-hw-worker    <none>           <none>
+dynamic-pvc-user            1/1     Running   0          51m   10.244.3.8    devops-hw-worker2   <none>           <none>
+hpa-demo-6c694fbb69-xtlpr   1/1     Running   0          48m   10.244.3.11   devops-hw-worker2   <none>           <none>
+pvc-user                    1/1     Running   0          51m   10.244.3.6    devops-hw-worker2   <none>           <none>
+>> -o wide adds IP, NODE and NOMINATED NODE. Always use it first: half of
+>> all 'it works on one pod but not another' problems are node-specific.
+
+$ kubectl get all
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/cmd-demo                    1/1     Running   0          0s
+pod/dynamic-pvc-user            1/1     Running   0          51m
+pod/hpa-demo-6c694fbb69-xtlpr   1/1     Running   0          48m
+pod/pvc-user                    1/1     Running   0          51m
+
+NAME                 TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+service/hpa-demo     ClusterIP   10.96.2.18   <none>        80/TCP    50m
+service/kubernetes   ClusterIP   10.96.0.1    <none>        443/TCP   64m
+
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/hpa-demo   1/1     1            1           50m
+
+NAME                                  DESIRED   CURRENT   READY   AGE
+replicaset.apps/hpa-demo-6c694fbb69   1         1         1       50m
+
+NAME                                           REFERENCE             TARGETS       MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/hpa-demo   Deployment/hpa-demo   cpu: 0%/50%   1         5         1          50m
+
+$ kubectl get pods --show-labels
+NAME                        READY   STATUS    RESTARTS   AGE   LABELS
+cmd-demo                    1/1     Running   0          1s    drill=cmds
+dynamic-pvc-user            1/1     Running   0          51m   demo=volumes
+hpa-demo-6c694fbb69-xtlpr   1/1     Running   0          48m   app=hpa-demo,pod-template-hash=6c694fbb69
+pvc-user                    1/1     Running   0          51m   demo=volumes
+
+$ kubectl get pods -o json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["items"][0]["status"]["phase"])'
+Running
+
+$ kubectl get pods --sort-by=.status.startTime
+NAME                        READY   STATUS    RESTARTS   AGE
+pvc-user                    1/1     Running   0          51m
+dynamic-pvc-user            1/1     Running   0          51m
+hpa-demo-6c694fbb69-xtlpr   1/1     Running   0          48m
+cmd-demo                    1/1     Running   0          1s
+
+$ kubectl get pods -A --field-selector=status.phase!=Running
+No resources found
+>> That last one is the single most useful triage command on a sick cluster:
+>> every pod that is NOT Running, across every namespace.
+
+=== 2. kubectl describe — WHY is it like that? ===
+$ kubectl describe pod cmd-demo
+Name:             cmd-demo
+Namespace:        default
+Priority:         0
+Service Account:  default
+Node:             devops-hw-worker/172.19.0.4
+Start Time:       Wed, 07 Oct 2026 22:57:28 +0530
+Labels:           drill=cmds
+Annotations:      <none>
+Status:           Running
+IP:               10.244.1.22
+IPs:
+  IP:  10.244.1.22
+Containers:
+  cmd-demo:
+    Container ID:   containerd://fc630ee05a12dd6105b8a519cc1cc0094f56d4c563beef885621380f3076b4a2
+    Image:          nginx:1.27-alpine
+   ...
+Events:
+  Type    Reason     Age   From               Message
+  ----    ------     ----  ----               -------
+  Normal  Scheduled  1s    default-scheduler  Successfully assigned default/cmd-demo to devops-hw-worker
+  Normal  Pulled     1s    kubelet            Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+  Normal  Created    1s    kubelet            Container created
+  Normal  Started    1s    kubelet            Container started
+
+>> The EVENTS block at the bottom is the payload. get tells you the state;
+>> describe tells you how it got there.
+
+=== 3. kubectl logs — what did the APPLICATION say? ===
+
+$ kubectl logs cmd-demo --tail=5
+2026/10/07 17:27:28 [notice] 1#1: start worker process 35
+2026/10/07 17:27:28 [notice] 1#1: start worker process 36
+2026/10/07 17:27:28 [notice] 1#1: start worker process 37
+2026/10/07 17:27:28 [notice] 1#1: start worker process 38
+2026/10/07 17:27:28 [notice] 1#1: start worker process 39
+
+  THE FOUR FORMS THAT MATTER:
+    kubectl logs <pod>                    current container
+    kubectl logs <pod> --previous         the container BEFORE the last restart
+                                          <- the only way to see why it crashed
+    kubectl logs <pod> -c <container>     a specific container in a multi-container pod
+    kubectl logs -l app=web --prefix      every pod matching a label, prefixed
+
+$ kubectl logs -l drill=cmds --tail=2 --prefix
+[pod/cmd-demo/cmd-demo] 2026/10/07 17:27:28 [notice] 1#1: start worker process 38
+[pod/cmd-demo/cmd-demo] 2026/10/07 17:27:28 [notice] 1#1: start worker process 39
+
+=== 4. kubectl exec — go and look inside ===
+
+$ kubectl exec cmd-demo -- nginx -v
+nginx version: nginx/1.27.5
+
+$ kubectl exec cmd-demo -- cat /etc/resolv.conf
+search default.svc.cluster.local svc.cluster.local cluster.local
+nameserver 10.96.0.10
+options ndots:5
+
+$ kubectl exec cmd-demo -- ls /usr/share/nginx/html
+50x.html
+index.html
+>> Interactive: kubectl exec -it <pod> -- sh
+>> If the image has no shell (distroless/scratch), use an ephemeral
+>> debug container instead:  kubectl debug -it <pod> --image=busybox
+
+=== 5. kubectl events — the cluster-wide timeline ===
+
+$ kubectl events --for pod/cmd-demo
+LAST SEEN   TYPE     REASON      OBJECT         MESSAGE
+1s          Normal   Scheduled   Pod/cmd-demo   Successfully assigned default/cmd-demo to devops-hw-worker
+1s          Normal   Pulled      Pod/cmd-demo   Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+1s          Normal   Created     Pod/cmd-demo   Container created
+1s          Normal   Started     Pod/cmd-demo   Container started
+
+$ kubectl get events --sort-by=.lastTimestamp | tail -12
+31m         Normal    Pulled                         pod/probe-bad-liveness                 Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+31m         Normal    Created                        pod/probe-bad-liveness                 Container created
+31m         Normal    Started                        pod/probe-bad-liveness                 Container started
+31m         Warning   Unhealthy                      pod/probe-bad-liveness                 Liveness probe failed: HTTP probe failed with statuscode: 404
+31m         Normal    Killing                        pod/probe-bad-liveness                 Container web failed liveness probe, will be restarted
+31m         Warning   BackOff                        pod/probe-bad-liveness                 Back-off restarting failed container web in pod probe-bad-liveness_default(549971fe-cefe-4b65-9067-96c9b4c83807)
+30m         Normal    Killing                        pod/probe-never-ready                  Stopping container web
+30m         Normal    Killing                        pod/probes-demo                        Stopping container web
+1s          Normal    Scheduled                      pod/cmd-demo                           Successfully assigned default/cmd-demo to devops-hw-worker
+1s          Normal    Started                        pod/cmd-demo                           Container started
+1s          Normal    Created                        pod/cmd-demo                           Container created
+1s          Normal    Pulled                         pod/cmd-demo                           Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+>> Sorting by timestamp matters - the default order is NOT chronological,
+>> which has misled a lot of people into reading a stale event as current.
+
+=== 6. kubectl explain — the API reference, offline ===
+
+$ kubectl explain pod.spec.containers.livenessProbe | head -16
+KIND:       Pod
+VERSION:    v1
+
+FIELD: livenessProbe <Probe>
+
+
+DESCRIPTION:
+    Periodic probe of container liveness. Container will be restarted if the
+    probe fails. Cannot be updated. More info:
+    https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle#container-probes
+    Probe describes a health check to be performed against a container to
+    determine whether it is alive or ready to receive traffic.
+    
+FIELDS:
+  exec	<ExecAction>
+    Exec specifies a command to execute in the container.
+
+$ kubectl explain deployment.spec.strategy.rollingUpdate
+GROUP:      apps
+KIND:       Deployment
+VERSION:    v1
+
+FIELD: rollingUpdate <RollingUpdateDeployment>
+
+
+DESCRIPTION:
+    Rolling update config params. Present only if DeploymentStrategyType =
+    RollingUpdate.
+    Spec to control the desired behavior of rolling update.
+    
+FIELDS:
+  maxSurge	<IntOrString>
+    The maximum number of pods that can be scheduled above the desired number of
+    pods. Value can be an absolute number (ex: 5) or a percentage of desired
+    pods (ex: 10%). This can not be 0 if MaxUnavailable is 0. Absolute number is
+    calculated from percentage by rounding up. Defaults to 25%. Example: when
+    this is set to 30%, the new ReplicaSet can be scaled up immediately when the
+    rolling update starts, such that the total number of old and new pods do not
+    exceed 130% of desired pods. Once old pods have been killed, new ReplicaSet
+    can be scaled up further, ensuring that total number of pods running at any
+    time during the update is at most 130% of desired pods.
+
+  maxUnavailable	<IntOrString>
+>> No web search needed for field names, types or defaults.
+
+=== 7. kubectl top — who is using the resources? ===
+
+$ kubectl top nodes
+NAME                      CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)   
+devops-hw-control-plane   123m         2%       1186Mi          15%         
+devops-hw-worker          31m          0%       337Mi           4%          
+devops-hw-worker2         28m          0%       419Mi           5%          
+
+$ kubectl top pods
+NAME                        CPU(cores)   MEMORY(bytes)   
+dynamic-pvc-user            0m           0Mi             
+hpa-demo-6c694fbb69-xtlpr   1m           50Mi            
+pvc-user                    0m           0Mi             
+
+$ kubectl top pods --containers | head -6
+POD                         NAME         CPU(cores)   MEMORY(bytes)   
+dynamic-pvc-user            app          0m           0Mi             
+hpa-demo-6c694fbb69-xtlpr   php-apache   1m           50Mi            
+pvc-user                    app          0m           0Mi             
+>> Requires metrics-server. Use it to answer 'is this pod being throttled
+>> or OOMKilled?' before blaming the application.
+
+=== 8. PUTTING IT TOGETHER — the triage order ===
+
+    1. kubectl get pods -o wide            what is broken, and where?
+            |
+    2. kubectl describe pod <name>         why? -> read EVENTS at the bottom
+            |
+    3. kubectl logs <name>                 what did the app say?
+       kubectl logs <name> --previous      ...before it crashed
+            |
+    4. kubectl exec -it <name> -- sh       go in and look
+            |
+    5. kubectl get events --sort-by=...    what else happened at that moment?
+
+  Steps 1 and 2 resolve the large majority of problems on their own.

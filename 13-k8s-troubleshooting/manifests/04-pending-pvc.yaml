@@ -1,0 +1,21 @@
+# BROKEN (a different Pending cause): the PVC references a StorageClass that
+# does not exist, so it never binds, so the pod never schedules.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: ts-bad-pvc }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nonexistent-storage-class
+  resources: { requests: { storage: 1Gi } }
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: ts-pending-pvc, labels: { drill: troubleshooting } }
+spec:
+  volumes:
+    - name: data
+      persistentVolumeClaim: { claimName: ts-bad-pvc }
+  containers:
+    - name: app
+      image: nginx:1.27-alpine
+      volumeMounts: [{ name: data, mountPath: /data }]

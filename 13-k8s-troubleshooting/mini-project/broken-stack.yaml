@@ -1,0 +1,75 @@
+# ============================================================================
+#  SESSION 14 MINI PROJECT — a deliberately broken 2-tier stack.
+#  FIVE independent faults are planted. The drill is to find them one at a
+#  time, because fixing one only reveals the next.
+#
+#    FAULT 1  frontend image tag does not exist          -> ImagePullBackOff
+#    FAULT 2  backend readiness probe hits a 404         -> Running but 0/1
+#    FAULT 3  backend Service selector typo              -> empty endpoints
+#    FAULT 4  frontend env references a missing CM key   -> CreateContainerConfigError
+#    FAULT 5  frontend CPU request larger than any node  -> Pending
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata: { name: tsproject }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: app-config, namespace: tsproject }
+data:
+  BACKEND_URL: "http://backend"
+  # NOTE: LOG_LEVEL is intentionally absent -> FAULT 4
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: backend, namespace: tsproject }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: backend } }
+  template:
+    metadata: { labels: { app: backend } }
+    spec:
+      containers:
+        - name: api
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80 }]
+          readinessProbe:
+            httpGet: { path: /healthz, port: 80 }   # FAULT 2: nginx has no /healthz
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: backend, namespace: tsproject }
+spec:
+  selector: { app: backend-api }        # FAULT 3: pods are labelled app=backend
+  ports: [{ port: 80, targetPort: 80 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: frontend, namespace: tsproject }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: frontend } }
+  template:
+    metadata: { labels: { app: frontend } }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine-nonexistent    # FAULT 1
+          ports: [{ containerPort: 80 }]
+          env:
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: { name: app-config, key: LOG_LEVEL }   # FAULT 4
+          resources:
+            requests: { cpu: "32" }     # FAULT 5: no node has 32 cores
+---
+apiVersion: v1
+kind: Service
+metadata: { name: frontend, namespace: tsproject }
+spec:
+  selector: { app: frontend }
+  ports: [{ port: 80, targetPort: 80 }]

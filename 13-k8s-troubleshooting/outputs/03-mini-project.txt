@@ -1,0 +1,237 @@
+
+=== 0. DEPLOY THE BROKEN STACK ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/13-k8s-troubleshooting/mini-project/broken-stack.yaml
+namespace/tsproject created
+configmap/app-config created
+deployment.apps/backend created
+service/backend created
+deployment.apps/frontend created
+service/frontend created
+
+$ kubectl get all -n tsproject
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/backend-df7b6c5c5-mbcqd     0/1     Running   0          40s
+pod/backend-df7b6c5c5-tfzm6     0/1     Running   0          40s
+pod/frontend-579b746d6f-g24gl   0/1     Pending   0          40s
+
+NAME               TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+service/backend    ClusterIP   10.96.55.119    <none>        80/TCP    40s
+service/frontend   ClusterIP   10.96.220.232   <none>        80/TCP    40s
+
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/backend    0/2     2            0           40s
+deployment.apps/frontend   0/1     1            0           40s
+
+NAME                                  DESIRED   CURRENT   READY   AGE
+replicaset.apps/backend-df7b6c5c5     2         2         0       40s
+replicaset.apps/frontend-579b746d6f   1         1         0       40s
+
+>> Nothing works. Rather than guess, triage in order.
+
+=== 1. TRIAGE — what is not Running? ===
+
+$ kubectl get pods -n tsproject -o wide
+NAME                        READY   STATUS    RESTARTS   AGE   IP            NODE                NOMINATED NODE   READINESS GATES
+backend-df7b6c5c5-mbcqd     0/1     Running   0          40s   10.244.3.22   devops-hw-worker2   <none>           <none>
+backend-df7b6c5c5-tfzm6     0/1     Running   0          40s   10.244.1.29   devops-hw-worker    <none>           <none>
+frontend-579b746d6f-g24gl   0/1     Pending   0          40s   <none>        <none>              <none>           <none>
+
+$ kubectl get pods -n tsproject --field-selector=status.phase!=Running
+NAME                        READY   STATUS    RESTARTS   AGE
+frontend-579b746d6f-g24gl   0/1     Pending   0          40s
+>> Two different frontend failures and a backend that is Running but not READY.
+
+=== FAULT 1 — frontend Pending ===
+
+--- INVESTIGATE ---
+
+$ kubectl describe pod -n tsproject -l app=frontend | sed -n '/Events:/,$p' | head -6
+Events:
+  Type     Reason            Age   From               Message
+  ----     ------            ----  ----               -------
+  Warning  FailedScheduling  40s   default-scheduler  0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 Insufficient cpu. preemption: 0/3 nodes are available: 3 Preemption is not helpful for scheduling.
+
+--- ROOT CAUSE ---
+requests.cpu is 32; no node has that much allocatable.
+
+$ kubectl get nodes -o custom-columns=NODE:.metadata.name,CPU:.status.allocatable.cpu --no-headers
+devops-hw-control-plane   6
+devops-hw-worker          6
+devops-hw-worker2         6
+
+--- FIX ---
+$ kubectl set resources deployment/frontend -n tsproject --requests=cpu=100m
+
+$ kubectl get pods -n tsproject -l app=frontend
+NAME                        READY   STATUS         RESTARTS   AGE
+frontend-5668cc4c44-gt594   0/1     ErrImagePull   0          20s
+frontend-579b746d6f-g24gl   0/1     Pending        0          61s
+>> Scheduled now - which EXPOSES the next fault.
+
+=== FAULT 2 — frontend ImagePullBackOff ===
+
+--- INVESTIGATE ---
+
+$ kubectl describe pod -n tsproject -l app=frontend | sed -n '/Events:/,$p' | head -7
+Events:
+  Type     Reason     Age   From               Message
+  ----     ------     ----  ----               -------
+  Normal   Scheduled  20s   default-scheduler  Successfully assigned tsproject/frontend-5668cc4c44-gt594 to devops-hw-worker
+  Normal   Pulling    20s   kubelet            Pulling image "nginx:1.27-alpine-nonexistent"
+  Warning  Failed     8s    kubelet            Failed to pull image "nginx:1.27-alpine-nonexistent": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/nginx:1.27-alpine-nonexistent": failed to resolve reference "docker.io/library/nginx:1.27-alpine-nonexistent": docker.io/library/nginx:1.27-alpine-nonexistent: not found
+  Warning  Failed     8s    kubelet            Error: ErrImagePull
+
+--- ROOT CAUSE ---
+Image tag nginx:1.27-alpine-nonexistent does not exist.
+
+--- FIX ---
+$ kubectl set image deployment/frontend web=nginx:1.27-alpine -n tsproject
+
+$ kubectl get pods -n tsproject -l app=frontend
+NAME                        READY   STATUS                       RESTARTS   AGE
+frontend-5668cc4c44-gt594   0/1     ImagePullBackOff             0          45s
+frontend-6b7497f9b6-szwjt   0/1     CreateContainerConfigError   0          25s
+>> Still not Running - a THIRD fault is underneath.
+
+=== FAULT 3 — frontend CreateContainerConfigError ===
+
+--- INVESTIGATE ---
+
+$ kubectl describe pod -n tsproject -l app=frontend | sed -n '/Events:/,$p' | head -6
+Events:
+  Type     Reason     Age                From               Message
+  ----     ------     ----               ----               -------
+  Normal   Scheduled  45s                default-scheduler  Successfully assigned tsproject/frontend-5668cc4c44-gt594 to devops-hw-worker
+  Normal   BackOff    32s                kubelet            Back-off pulling image "nginx:1.27-alpine-nonexistent"
+  Warning  Failed     32s                kubelet            Error: ImagePullBackOff
+
+$ kubectl get configmap app-config -n tsproject -o jsonpath='keys: {.data}{"\n"}'
+keys: {"BACKEND_URL":"http://backend"}
+
+--- ROOT CAUSE ---
+The deployment references configMapKeyRef key LOG_LEVEL, which is absent.
+
+--- FIX ---
+$ kubectl patch configmap app-config -n tsproject -p '{"data":{"LOG_LEVEL":"INFO"}}'
+Waiting for deployment "frontend" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "frontend" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "frontend" rollout to finish: 1 old replicas are pending termination...
+deployment "frontend" successfully rolled out
+
+$ kubectl get pods -n tsproject -l app=frontend
+NAME                        READY   STATUS        RESTARTS   AGE
+frontend-5cf4b486f9-tg4b2   1/1     Running       0          1s
+frontend-6b7497f9b6-szwjt   0/1     Terminating   0          26s
+
+$ kubectl exec -n tsproject deploy/frontend -- printenv LOG_LEVEL
+INFO
+
+=== FAULT 4 — backend Running but 0/1 READY ===
+
+--- INVESTIGATE ---
+
+$ kubectl get pods -n tsproject -l app=backend
+NAME                      READY   STATUS    RESTARTS   AGE
+backend-df7b6c5c5-mbcqd   0/1     Running   0          87s
+backend-df7b6c5c5-tfzm6   0/1     Running   0          87s
+
+$ kubectl describe pod -n tsproject -l app=backend | sed -n '/Events:/,$p' | head -6
+Events:
+  Type     Reason     Age                From               Message
+  ----     ------     ----               ----               -------
+  Normal   Scheduled  87s                default-scheduler  Successfully assigned tsproject/backend-df7b6c5c5-mbcqd to devops-hw-worker2
+  Normal   Pulled     87s                kubelet            Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+  Normal   Created    86s                kubelet            Container created
+
+--- ROOT CAUSE ---
+The readiness probe requests /healthz; nginx returns 404 for it.
+
+--- FIX ---
+$ patch the readiness probe path to /
+Waiting for deployment "backend" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "backend" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "backend" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "backend" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "backend" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "backend" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "backend" rollout to finish: 1 old replicas are pending termination...
+deployment "backend" successfully rolled out
+
+$ kubectl get pods -n tsproject -l app=backend
+NAME                       READY   STATUS        RESTARTS   AGE
+backend-69b4dbf867-g9p2p   1/1     Running       0          12s
+backend-69b4dbf867-q7j9p   1/1     Running       0          6s
+backend-df7b6c5c5-mbcqd    0/1     Terminating   0          99s
+
+=== FAULT 5 — backend Service has no endpoints ===
+
+--- INVESTIGATE ---
+
+$ kubectl get endpoints backend -n tsproject
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME      ENDPOINTS   AGE
+backend   <none>      99s
+
+$ kubectl get svc backend -n tsproject -o jsonpath='selector: {.spec.selector}{"\n"}'
+selector: {"app":"backend-api"}
+
+$ kubectl get pods -n tsproject -l app=backend -o jsonpath='labels:   {.items[0].metadata.labels}{"\n"}'
+labels:   {"app":"backend","pod-template-hash":"69b4dbf867"}
+
+--- ROOT CAUSE ---
+Service selects app=backend-api; pods are labelled app=backend.
+
+--- FIX ---
+
+$ kubectl get endpoints backend -n tsproject
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME      ENDPOINTS                       AGE
+backend   10.244.1.32:80,10.244.3.24:80   104s
+
+=== FINAL VERIFICATION — end-to-end ===
+
+$ kubectl get all -n tsproject
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/backend-69b4dbf867-g9p2p    1/1     Running   0          18s
+pod/backend-69b4dbf867-q7j9p    1/1     Running   0          12s
+pod/frontend-5cf4b486f9-tg4b2   1/1     Running   0          19s
+
+NAME               TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+service/backend    ClusterIP   10.96.55.119    <none>        80/TCP    105s
+service/frontend   ClusterIP   10.96.220.232   <none>        80/TCP    105s
+
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/backend    2/2     2            2           105s
+deployment.apps/frontend   1/1     1            1           105s
+
+NAME                                  DESIRED   CURRENT   READY   AGE
+replicaset.apps/backend-69b4dbf867    2         2         2       18s
+replicaset.apps/backend-df7b6c5c5     0         0         0       105s
+replicaset.apps/frontend-5668cc4c44   0         0         0       64s
+replicaset.apps/frontend-579b746d6f   0         0         0       105s
+replicaset.apps/frontend-5cf4b486f9   1         1         1       19s
+replicaset.apps/frontend-6b7497f9b6   0         0         0       44s
+
+$ frontend pod -> backend Service (the path the app would actually use)
+<title>Welcome to nginx!</title>
+
+
+$ kubectl get pods -n tsproject --field-selector=status.phase!=Running
+No resources found in tsproject namespace.
+(no output above = every pod is Running)
+
+  WHAT THIS DRILL TEACHES:
+
+  Fixing one fault EXPOSES the next. The frontend went
+      Pending -> ImagePullBackOff -> CreateContainerConfigError -> Running
+  and each state was only visible once the previous blocker was cleared.
+
+  That is why you iterate rather than trying to diagnose everything at once
+  from the first `kubectl get pods`. The first error is rarely the only error.
+
+  The loop:
+      kubectl get pods --field-selector=status.phase!=Running
+      kubectl describe <the first one>   -> read Events
+      fix
+      repeat until the query returns nothing

@@ -1,0 +1,387 @@
+
+=== ISSUE 1 of 9 — CrashLoopBackOff ===
+
+--- IDENTIFY ---
+
+$ kubectl get pod ts-crashloop
+NAME           READY   STATUS   RESTARTS      AGE
+ts-crashloop   0/1     Error    2 (40s ago)   46s
+
+--- INVESTIGATE ---
+
+$ kubectl describe pod ts-crashloop | sed -n '/Events:/,$p' | head -9
+Events:
+  Type     Reason     Age                From               Message
+  ----     ------     ----               ----               -------
+  Normal   Scheduled  45s                default-scheduler  Successfully assigned default/ts-crashloop to devops-hw-worker
+  Normal   Pulled     25s (x3 over 45s)  kubelet            Container image "busybox:1.36" already present on machine and can be accessed by the pod
+  Normal   Created    25s (x3 over 45s)  kubelet            Container created
+  Normal   Started    25s (x3 over 45s)  kubelet            Container started
+  Warning  BackOff    22s (x2 over 39s)  kubelet            Back-off restarting failed container app in pod ts-crashloop_default(6fbd8da1-12de-41c4-ab66-489ec02a59ff)
+>> Events say 'Back-off restarting failed container' - that is the SYMPTOM.
+>> It never says WHY. For that, read the logs.
+
+$ kubectl logs ts-crashloop --tail=4
+starting...
+FATAL: config file /etc/app/config.yaml not found
+
+$ kubectl logs ts-crashloop --previous --tail=4
+unable to retrieve container logs for containerd://2fd52c86c0e63b899efb2ab1572a0f8b90a656bc2da08dca591f9f8a9bd1eed6
+$ kubectl get pod ts-crashloop -o jsonpath='lastState.terminated.exitCode={.status.containerStatuses[0].lastState.terminated.exitCode}  reason={.status.containerStatuses[0].lastState.terminated.reason}{"\n"}'
+lastState.terminated.exitCode=1  reason=Error
+
+--- ROOT CAUSE ---
+The application exits 1 because /etc/app/config.yaml is missing.
+Exit code 1 = application error (not 137=OOMKilled, not 143=SIGTERM).
+
+--- FIX + VERIFY ---
+
+$ kubectl get pod ts-crashloop-fixed
+NAME                 READY   STATUS    RESTARTS   AGE
+ts-crashloop-fixed   1/1     Running   0          1s
+
+$ kubectl logs ts-crashloop-fixed
+starting...
+config found, running
+>> Running, 0 restarts, config found.
+
+=== ISSUE 2 of 9 — ImagePullBackOff / ErrImagePull ===
+
+--- IDENTIFY ---
+
+$ kubectl get pod ts-imagepull
+NAME           READY   STATUS             RESTARTS   AGE
+ts-imagepull   0/1     ImagePullBackOff   0          36s
+
+--- INVESTIGATE ---
+
+$ kubectl describe pod ts-imagepull | sed -n '/Events:/,$p' | head -9
+Events:
+  Type     Reason     Age               From               Message
+  ----     ------     ----              ----               -------
+  Normal   Scheduled  36s               default-scheduler  Successfully assigned default/ts-imagepull to devops-hw-worker2
+  Warning  Failed     19s               kubelet            Failed to pull image "nginx:1.27-alpine-this-tag-does-not-exist": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/nginx:1.27-alpine-this-tag-does-not-exist": failed to resolve reference "docker.io/library/nginx:1.27-alpine-this-tag-does-not-exist": docker.io/library/nginx:1.27-alpine-this-tag-does-not-exist: not found
+  Warning  Failed     19s               kubelet            Error: ErrImagePull
+  Normal   BackOff    19s               kubelet            Back-off pulling image "nginx:1.27-alpine-this-tag-does-not-exist"
+  Warning  Failed     19s               kubelet            Error: ImagePullBackOff
+  Normal   Pulling    4s (x2 over 35s)  kubelet            Pulling image "nginx:1.27-alpine-this-tag-does-not-exist"
+
+$ kubectl get pod ts-imagepull -o jsonpath='state={.status.containerStatuses[0].state.waiting.reason}  msg={.status.containerStatuses[0].state.waiting.message}{"\n"}'
+state=ImagePullBackOff  msg=Back-off pulling image "nginx:1.27-alpine-this-tag-does-not-exist": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/nginx:1.27-alpine-this-tag-does-not-exist": failed to resolve reference "docker.io/library/nginx:1.27-alpine-this-tag-does-not-exist": docker.io/library/nginx:1.27-alpine-this-tag-does-not-exist: not found
+
+--- ROOT CAUSE ---
+The tag nginx:1.27-alpine-this-tag-does-not-exist is not in the registry.
+ErrImagePull is the first failure; ImagePullBackOff is the retry backoff.
+Other causes: a typo in the image name, a private registry with no
+imagePullSecret, or rate limiting from Docker Hub.
+
+--- FIX + VERIFY ---
+
+$ kubectl get pod ts-imagepull-fixed
+NAME                 READY   STATUS    RESTARTS   AGE
+ts-imagepull-fixed   1/1     Running   0          0s
+
+=== ISSUE 3 of 9 — Pending (unschedulable: insufficient resources) ===
+
+--- IDENTIFY ---
+
+$ kubectl get pod ts-pending
+NAME         READY   STATUS    RESTARTS   AGE
+ts-pending   0/1     Pending   0          13s
+>> Note: no NODE assigned, and it is Pending rather than ContainerCreating.
+
+--- INVESTIGATE ---
+
+$ kubectl describe pod ts-pending | sed -n '/Events:/,$p' | head -7
+Events:
+  Type     Reason            Age   From               Message
+  ----     ------            ----  ----               -------
+  Warning  FailedScheduling  13s   default-scheduler  0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 Insufficient cpu. preemption: 0/3 nodes are available: 3 Preemption is not helpful for scheduling.
+
+$ kubectl get pod ts-pending -o jsonpath='requested cpu={.spec.containers[0].resources.requests.cpu}{"\n"}'
+requested cpu=64
+
+$ kubectl get nodes -o custom-columns=NODE:.metadata.name,ALLOCATABLE_CPU:.status.allocatable.cpu --no-headers
+devops-hw-control-plane   6
+devops-hw-worker          6
+devops-hw-worker2         6
+
+--- ROOT CAUSE ---
+The pod requests 64 CPUs. No node has that much allocatable, so the
+scheduler filters out every node and the pod stays unscheduled.
+
+--- FIX + VERIFY ---
+
+$ kubectl get pod ts-pending-fixed -o wide
+NAME               READY   STATUS    RESTARTS   AGE   IP            NODE                NOMINATED NODE   READINESS GATES
+ts-pending-fixed   1/1     Running   0          1s    10.244.3.16   devops-hw-worker2   <none>           <none>
+
+=== ISSUE 4 of 9 — Pending (a DIFFERENT cause: unbound PVC) ===
+
+--- IDENTIFY ---
+
+$ kubectl get pod ts-pending-pvc
+NAME             READY   STATUS    RESTARTS   AGE
+ts-pending-pvc   0/1     Pending   0          12s
+>> Also Pending - but for a completely different reason. This is why you
+>> never stop at the STATUS; always read the events.
+
+--- INVESTIGATE ---
+
+$ kubectl describe pod ts-pending-pvc | sed -n '/Events:/,$p' | head -6
+Events:
+  Type     Reason            Age   From               Message
+  ----     ------            ----  ----               -------
+  Warning  FailedScheduling  12s   default-scheduler  0/3 nodes are available: pod has unbound immediate PersistentVolumeClaims. not found
+
+$ kubectl get pvc ts-bad-pvc
+NAME         STATUS    VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS                VOLUMEATTRIBUTESCLASS   AGE
+ts-bad-pvc   Pending                                      nonexistent-storage-class   <unset>                 12s
+
+$ kubectl describe pvc ts-bad-pvc | sed -n '/Events:/,$p' | head -6
+Events:
+  Type     Reason              Age   From                         Message
+  ----     ------              ----  ----                         -------
+  Warning  ProvisioningFailed  12s   persistentvolume-controller  storageclass.storage.k8s.io "nonexistent-storage-class" not found
+
+$ kubectl get storageclass
+NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+standard (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  67m
+
+--- ROOT CAUSE ---
+The PVC names storageClassName: nonexistent-storage-class, which does not
+exist. The claim can never bind, so the pod can never be scheduled.
+
+--- FIX + VERIFY ---
+$ recreate the PVC with storageClassName: standard
+
+$ kubectl get pvc ts-bad-pvc
+NAME         STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+ts-bad-pvc   Bound    pvc-6f88c2f4-cd6a-4e11-8403-42616c38e525   1Gi        RWO            standard       <unset>                 4s
+
+$ kubectl get pod ts-pending-pvc
+NAME             READY   STATUS    RESTARTS   AGE
+ts-pending-pvc   1/1     Running   0          5s
+
+=== ISSUE 5 of 9 — ContainerCreating (stuck) ===
+
+--- IDENTIFY ---
+
+$ kubectl get pod ts-containercreating
+NAME                   READY   STATUS              RESTARTS   AGE
+ts-containercreating   0/1     ContainerCreating   0          20s
+>> ContainerCreating, NOT Pending: the pod WAS scheduled onto a node.
+>> The kubelet is now stuck trying to set it up.
+
+--- INVESTIGATE ---
+
+$ kubectl describe pod ts-containercreating | sed -n '/Events:/,$p' | head -7
+Events:
+  Type     Reason       Age               From               Message
+  ----     ------       ----              ----               -------
+  Normal   Scheduled    20s               default-scheduler  Successfully assigned default/ts-containercreating to devops-hw-worker
+  Warning  FailedMount  5s (x6 over 20s)  kubelet            MountVolume.SetUp failed for volume "creds" : secret "ts-missing-secret" not found
+
+$ kubectl get secret ts-missing-secret 2>&1 | head -3
+Error from server (NotFound): secrets "ts-missing-secret" not found
+
+--- ROOT CAUSE ---
+The pod mounts a Secret named ts-missing-secret that does not exist.
+The kubelet retries the mount forever.
+Same symptom, other causes: an unattachable volume, or a CNI failure.
+
+--- FIX + VERIFY ---
+$ kubectl create secret generic ts-missing-secret --from-literal=token=abc123
+secret/ts-missing-secret created
+  Running after 20s - no pod recreation needed
+
+$ kubectl get pod ts-containercreating
+NAME                   READY   STATUS    RESTARTS   AGE
+ts-containercreating   1/1     Running   0          35s
+>> The kubelet's next retry succeeded. Creating the missing object was
+>> enough; the pod did not have to be deleted.
+
+=== ISSUE 6 of 9 — Service connectivity (selector mismatch) ===
+
+--- IDENTIFY ---
+
+$ kubectl get svc ts-web-svc
+NAME         TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+ts-web-svc   ClusterIP   10.96.213.216   <none>        80/TCP    1s
+$ kubectl exec ts-client -- wget -qO- --timeout=3 http://ts-web-svc
+wget: can't connect to remote host (10.96.213.216): Connection refused
+command terminated with exit code 1
+>> No response. But the Service exists and has a ClusterIP.
+
+--- INVESTIGATE ---
+
+$ kubectl get endpoints ts-web-svc
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME         ENDPOINTS   AGE
+ts-web-svc   <none>      2s
+>> ENDPOINTS is empty. ALWAYS check this first for Service problems.
+
+$ kubectl get svc ts-web-svc -o jsonpath='service selector: {.spec.selector}{"\n"}'
+service selector: {"app":"ts-webserver"}
+
+$ kubectl get pods -l app=ts-web -o jsonpath='pod labels:      {.items[0].metadata.labels}{"\n"}'
+pod labels:      {"app":"ts-web","pod-template-hash":"6c989d9cc7"}
+
+--- ROOT CAUSE ---
+The Service selects app=ts-webserver; the pods are labelled app=ts-web.
+No pod matches, so the endpoints list is empty and nothing can be routed.
+
+--- FIX + VERIFY ---
+$ kubectl patch svc ts-web-svc -p '{"spec":{"selector":{"app":"ts-web"}}}'
+
+$ kubectl get endpoints ts-web-svc
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME         ENDPOINTS                       AGE
+ts-web-svc   10.244.1.27:80,10.244.3.19:80   6s
+$ kubectl exec ts-client -- wget -qO- --timeout=3 http://ts-web-svc | head -4
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+
+=== ISSUE 7 of 9 — Service connectivity (wrong targetPort) ===
+
+--- IDENTIFY ---
+
+$ kubectl get svc ts-web-badport
+NAME             TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+ts-web-badport   ClusterIP   10.96.33.147   <none>        80/TCP    5s
+
+$ kubectl get endpoints ts-web-badport
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME             ENDPOINTS                           AGE
+ts-web-badport   10.244.1.27:8080,10.244.3.19:8080   5s
+>> ENDPOINTS IS POPULATED this time - so the selector is fine.
+$ kubectl exec ts-client -- wget -qO- --timeout=3 http://ts-web-badport
+wget: can't connect to remote host (10.96.33.147): Connection refused
+command terminated with exit code 1
+>> ...and yet it still fails. A very different bug with the same symptom.
+
+--- INVESTIGATE ---
+
+$ kubectl get svc ts-web-badport -o jsonpath='port={.spec.ports[0].port}  targetPort={.spec.ports[0].targetPort}{"\n"}'
+port=80  targetPort=8080
+
+$ kubectl get pods -l app=ts-web -o jsonpath='containerPort={.items[0].spec.containers[0].ports[0].containerPort}{"\n"}'
+containerPort=80
+$ kubectl exec ts-client -- wget -qO- --timeout=2 http://<podIP>:80   (direct)
+<!DOCTYPE html>
+<html>
+>> The pod answers on 80. So the pod is fine and the Service is misrouting.
+
+--- ROOT CAUSE ---
+targetPort is 8080, but nginx listens on 80. The endpoints exist, traffic
+is forwarded, and nothing is listening at the other end.
+
+--- FIX + VERIFY ---
+$ kubectl exec ts-client -- wget -qO- --timeout=3 http://ts-web-badport | head -4
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+
+=== ISSUE 8 of 9 — DNS resolution ===
+
+--- IDENTIFY ---
+$ kubectl exec ts-client -- wget -qO- --timeout=3 http://ts-web-svc.wrong-namespace
+wget: bad address 'ts-web-svc.wrong-namespace'
+command terminated with exit code 1
+
+--- INVESTIGATE ---
+
+$ kubectl get pods -n kube-system -l k8s-app=kube-dns
+NAME                       READY   STATUS    RESTARTS   AGE
+coredns-559f6c778d-44jc5   1/1     Running   0          68m
+coredns-559f6c778d-6w7m8   1/1     Running   0          68m
+>> CoreDNS is Running, so DNS itself is up.
+
+$ kubectl exec ts-client -- cat /etc/resolv.conf
+search default.svc.cluster.local svc.cluster.local cluster.local
+nameserver 10.96.0.10
+options ndots:5
+$ kubectl exec ts-client -- nslookup ts-web-svc.default.svc.cluster.local
+Name:	ts-web-svc.default.svc.cluster.local
+Address: 10.96.213.216
+
+--- ROOT CAUSE ---
+The name resolves fine in the CORRECT namespace. 'wrong-namespace' does
+not exist, so the FQDN ts-web-svc.wrong-namespace.svc.cluster.local has
+no record. The search list only appends the POD's own namespace.
+
+--- FIX + VERIFY ---
+$ use the right FQDN: <service>.<namespace>.svc.cluster.local
+<!DOCTYPE html>
+<html>
+<head>
+
+>> DNS TRIAGE ORDER: 1) are the CoreDNS pods Running?
+>>                   2) does /etc/resolv.conf point at the kube-dns ClusterIP?
+>>                   3) does the FULL FQDN resolve?
+>>                   4) kubectl logs -n kube-system -l k8s-app=kube-dns
+
+=== ISSUE 9 of 9 — Configuration error (missing ConfigMap key) ===
+
+--- IDENTIFY ---
+
+$ kubectl get pod ts-config-error
+NAME              READY   STATUS                       RESTARTS   AGE
+ts-config-error   0/1     CreateContainerConfigError   0          20s
+>> CreateContainerConfigError - distinct from CrashLoopBackOff. The
+>> container was never even created.
+
+--- INVESTIGATE ---
+
+$ kubectl describe pod ts-config-error | sed -n '/Events:/,$p' | head -7
+Events:
+  Type     Reason     Age               From               Message
+  ----     ------     ----              ----               -------
+  Normal   Scheduled  20s               default-scheduler  Successfully assigned default/ts-config-error to devops-hw-worker2
+  Normal   Pulled     8s (x3 over 20s)  kubelet            Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+  Warning  Failed     8s (x3 over 20s)  kubelet            Error: couldn't find key ABSENT_KEY in ConfigMap default/ts-partial-config
+
+$ kubectl get configmap ts-partial-config -o jsonpath='keys present: {.data}{"\n"}'
+keys present: {"PRESENT_KEY":"value"}
+
+$ kubectl get pod ts-config-error -o jsonpath='key requested: {.spec.containers[0].env[0].valueFrom.configMapKeyRef.key}{"\n"}'
+key requested: ABSENT_KEY
+
+--- ROOT CAUSE ---
+The pod references key ABSENT_KEY; the ConfigMap only contains PRESENT_KEY.
+
+--- FIX + VERIFY ---
+$ kubectl patch configmap ts-partial-config -p '{"data":{"ABSENT_KEY":"now-present"}}'
+  Running after 10s
+
+$ kubectl get pod ts-config-error
+NAME              READY   STATUS    RESTARTS   AGE
+ts-config-error   1/1     Running   0          26s
+
+$ kubectl exec ts-config-error -- printenv MISSING
+now-present
+
+=== SUMMARY — symptom to cause ===
+
+  STATUS                         FIRST THING TO CHECK          USUAL CAUSE
+  ----------------------------   ---------------------------   ----------------------------
+  Pending                        describe -> Events            unschedulable: resources,
+                                                               taints, or an unbound PVC
+  ContainerCreating (stuck)      describe -> Events            missing Secret/ConfigMap,
+                                                               volume or CNI failure
+  ErrImagePull / ImagePullBackOff describe -> Events           bad tag, typo, no pull secret
+  CrashLoopBackOff               logs --previous               the app itself is exiting
+  CreateContainerConfigError     describe -> Events            missing ConfigMap/Secret KEY
+  Running but 0/1 READY          describe -> readiness probe   probe failing
+  Running, OOMKilled restarts    get -o yaml -> lastState      memory limit too low
+  Service refuses connections    get endpoints                 selector mismatch (empty),
+                                                               or wrong targetPort (populated)
+  DNS name not found             nslookup the FULL FQDN        wrong namespace in the name
+
+  THE ONE RULE: the STATUS tells you the symptom, the EVENTS tell you the cause,
+  and the LOGS tell you what the application thought. Issues 6 and 7 above are
+  the proof - identical symptom, completely different bug, and the thing that
+  separates them is `kubectl get endpoints`.

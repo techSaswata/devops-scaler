@@ -1,0 +1,11 @@
+# BROKEN: requests more CPU than any node has, so the scheduler cannot place it.
+# Symptom: Pending, forever, with FailedScheduling events.
+apiVersion: v1
+kind: Pod
+metadata: { name: ts-pending, labels: { drill: troubleshooting } }
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27-alpine
+      resources:
+        requests: { cpu: "64" }      # no node has 64 cores

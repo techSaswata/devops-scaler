@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Pod
+metadata: { name: ts-imagepull-fixed, labels: { drill: troubleshooting } }
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27-alpine     # a tag that actually exists

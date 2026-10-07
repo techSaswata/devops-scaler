@@ -1,0 +1,22 @@
+# BROKEN: the Service selector does not match the pod labels, so the Service
+# has zero endpoints and every request fails to connect.
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: ts-web, labels: { drill: troubleshooting } }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: ts-web } }
+  template:
+    metadata: { labels: { app: ts-web } }     # pods are labelled app=ts-web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: ts-web-svc }
+spec:
+  selector: { app: ts-webserver }             # BUG: no pod has this label
+  ports: [{ port: 80, targetPort: 80 }]

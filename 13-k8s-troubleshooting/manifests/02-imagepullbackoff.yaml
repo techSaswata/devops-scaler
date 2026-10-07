@@ -1,0 +1,9 @@
+# BROKEN: the image tag does not exist in the registry.
+# Symptom: ErrImagePull, then ImagePullBackOff. The pod never reaches Running.
+apiVersion: v1
+kind: Pod
+metadata: { name: ts-imagepull, labels: { drill: troubleshooting } }
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27-alpine-this-tag-does-not-exist

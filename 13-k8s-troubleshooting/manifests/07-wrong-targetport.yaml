@@ -1,0 +1,10 @@
+# BROKEN: a second, subtler Service bug. The selector is CORRECT, so endpoints
+# exist - but targetPort points at a port nothing is listening on.
+apiVersion: v1
+kind: Service
+metadata: { name: ts-web-badport }
+spec:
+  selector: { app: ts-web }        # correct - endpoints WILL be populated
+  ports:
+    - port: 80
+      targetPort: 8080             # BUG: nginx listens on 80, not 8080
