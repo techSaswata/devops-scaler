@@ -1,0 +1,8 @@
+# Terraform state contains resource attributes IN PLAIN TEXT, including any
+# secrets a resource exposes. It must never be committed.
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+*.tfvars.secret
