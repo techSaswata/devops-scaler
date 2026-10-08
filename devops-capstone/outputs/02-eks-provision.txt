@@ -40,102 +40,75 @@ Success! The configuration is valid.
 
 === 3. PLAN ===
 
-$ terraform plan -no-color -out=tfplan
-      + enable_dns_hostnames                 = true
-      + enable_dns_support                   = true
-      + enable_network_address_usage_metrics = (known after apply)
-      + id                                   = (known after apply)
-      + instance_tenancy                     = "default"
-      + ipv6_association_id                  = (known after apply)
-      + ipv6_cidr_block                      = (known after apply)
-      + ipv6_cidr_block_network_border_group = (known after apply)
-      + main_route_table_id                  = (known after apply)
-      + owner_id                             = (known after apply)
-      + tags                                 = {
-          + "Name" = "clinicflow-vpc"
-        }
-      + tags_all                             = {
-          + "ManagedBy" = "terraform"
-          + "Name"      = "clinicflow-vpc"
-          + "Owner"     = "24BCS10248"
-          + "Project"   = "clinicflow"
-        }
-    }
+$ terraform plan -no-color -var use_nat_gateway=false -out=tfplan
+data.aws_iam_policy_document.cluster_assume: Reading...
+data.aws_availability_zones.available: Reading...
+data.aws_iam_policy_document.node_assume: Reading...
+data.aws_iam_policy_document.pod_identity_assume: Reading...
+aws_vpc.main: Refreshing state... [id=vpc-0e2d1ed18bbfb751f]
+aws_cloudwatch_log_group.eks: Refreshing state... [id=/aws/eks/clinicflow/cluster]
+data.aws_iam_policy_document.pod_identity_assume: Read complete after 0s [id=819195744]
+data.aws_iam_policy_document.node_assume: Read complete after 0s [id=2851119427]
+data.aws_iam_policy_document.cluster_assume: Read complete after 0s [id=3552664922]
+aws_iam_role.ebs_csi: Refreshing state... [id=clinicflow-ebs-csi]
+aws_iam_role.cluster: Refreshing state... [id=clinicflow-eks-cluster]
+aws_iam_role.node: Refreshing state... [id=clinicflow-eks-node]
+data.aws_availability_zones.available: Read complete after 0s [id=ap-south-1]
+aws_internet_gateway.main: Refreshing state... [id=igw-02fbf0207d15d4c9f]
+aws_subnet.private[1]: Refreshing state... [id=subnet-0c92ff5cbaea57726]
+aws_subnet.private[0]: Refreshing state... [id=subnet-01e9e16eb85d5cec4]
+aws_subnet.public[1]: Refreshing state... [id=subnet-000473db4ddf11d5f]
+aws_subnet.public[0]: Refreshing state... [id=subnet-06e26cb847bd18d1e]
+aws_route_table.public: Refreshing state... [id=rtb-0f9b8820057937a59]
+aws_route_table.private[0]: Refreshing state... [id=rtb-032ad2fe4eb2528e8]
+aws_route_table.private[1]: Refreshing state... [id=rtb-079697ac598e1cbaf]
+aws_route_table_association.public[0]: Refreshing state... [id=rtbassoc-06afcc577f3b74eb2]
+aws_route_table_association.public[1]: Refreshing state... [id=rtbassoc-0b83c9fff3e889a30]
+aws_route_table_association.private[1]: Refreshing state... [id=rtbassoc-089446103a0ccb51d]
+aws_route_table_association.private[0]: Refreshing state... [id=rtbassoc-03837bd8a489f872f]
+aws_iam_role_policy_attachment.cluster_policy: Refreshing state... [id=clinicflow-eks-cluster-20261008131212638000000001]
+aws_iam_role_policy_attachment.ebs_csi: Refreshing state... [id=clinicflow-ebs-csi-20261008141602246800000002]
+aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"]: Refreshing state... [id=clinicflow-eks-node-20261008131212941300000003]
+aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"]: Refreshing state... [id=clinicflow-eks-node-20261008131213256900000005]
+aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"]: Refreshing state... [id=clinicflow-eks-node-20261008131212728500000002]
+aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"]: Refreshing state... [id=clinicflow-eks-node-20261008131213025200000004]
+aws_eks_cluster.main: Refreshing state... [id=clinicflow]
+aws_eks_node_group.main: Refreshing state... [id=clinicflow:clinicflow-ng]
+aws_eks_addon.pod_identity: Refreshing state... [id=clinicflow:eks-pod-identity-agent]
+aws_eks_addon.vpc_cni: Refreshing state... [id=clinicflow:vpc-cni]
+aws_eks_addon.ebs_csi: Refreshing state... [id=clinicflow:aws-ebs-csi-driver]
+aws_eks_addon.kube_proxy: Refreshing state... [id=clinicflow:kube-proxy]
+aws_eks_addon.coredns: Refreshing state... [id=clinicflow:coredns]
+aws_eks_pod_identity_association.ebs_csi: Refreshing state... [id=a-vdmzc5a795hnjvetr]
 
-Plan: 30 to add, 0 to change, 0 to destroy.
+No changes. Your infrastructure matches the configuration.
 
-Changes to Outputs:
-  + cluster_endpoint   = (known after apply)
-  + cluster_name       = "clinicflow"
-  + cluster_version    = "1.31"
-  + configure_kubectl  = "aws eks update-kubeconfig --region ap-south-1 --name clinicflow"
-  + node_group_status  = (known after apply)
-  + private_subnet_ids = [
-      + (known after apply),
-      + (known after apply),
-    ]
-  + public_subnet_ids  = [
-      + (known after apply),
-      + (known after apply),
-    ]
-  + vpc_id             = (known after apply)
-
-─────────────────────────────────────────────────────────────────────────────
-
-Saved the plan to: tfplan
-
-To perform exactly these actions, run the following command to apply:
-    terraform apply "tfplan"
+Terraform has compared your real infrastructure against your configuration
+and found no differences, so no changes are needed.
 
 === 4. APPLY ===
 EKS control planes take 8-12 minutes, and the node group another 3-5.
 
 $ terraform apply -no-color -auto-approve tfplan
-aws_eks_node_group.main: Still creating... [05m00s elapsed]
-aws_eks_node_group.main: Still creating... [05m10s elapsed]
-aws_eks_node_group.main: Still creating... [05m20s elapsed]
-aws_eks_node_group.main: Still creating... [05m30s elapsed]
-aws_eks_node_group.main: Still creating... [05m40s elapsed]
-aws_eks_node_group.main: Still creating... [05m50s elapsed]
-aws_eks_node_group.main: Still creating... [06m00s elapsed]
-aws_eks_node_group.main: Still creating... [06m10s elapsed]
-aws_eks_node_group.main: Still creating... [06m20s elapsed]
-aws_eks_node_group.main: Still creating... [06m30s elapsed]
-aws_eks_node_group.main: Still creating... [06m40s elapsed]
-aws_eks_node_group.main: Still creating... [06m50s elapsed]
-aws_eks_node_group.main: Still creating... [07m00s elapsed]
-aws_eks_node_group.main: Still creating... [07m10s elapsed]
-aws_eks_node_group.main: Still creating... [07m20s elapsed]
-aws_eks_node_group.main: Still creating... [07m30s elapsed]
-aws_eks_node_group.main: Still creating... [07m40s elapsed]
-aws_eks_node_group.main: Still creating... [07m50s elapsed]
-aws_eks_node_group.main: Still creating... [08m00s elapsed]
-aws_eks_node_group.main: Still creating... [08m10s elapsed]
-Stopping operation...
 
-Interrupt received.
-Please wait for Terraform to exit or data loss may occur.
-Gracefully shutting down...
+Apply complete! Resources: 0 added, 0 changed, 0 destroyed.
 
+Outputs:
 
-Error: execution halted
-
-
-Error: execution halted
-
-
-Error: waiting for EKS Node Group (clinicflow:clinicflow-ng) create: context canceled
-
-  with aws_eks_node_group.main,
-  on eks.tf line 44, in resource "aws_eks_node_group" "main":
-  44: resource "aws_eks_node_group" "main" {
-
-
-Error: creating EC2 EIP: operation error EC2: AllocateAddress, https response error StatusCode: 400, RequestID: 704a5b3f-bb66-4bfa-93e3-6ba152f0e241, api error AddressLimitExceeded: The maximum number of addresses has been reached.
-
-  with aws_eip.nat[0],
-  on network.tf line 65, in resource "aws_eip" "nat":
-  65: resource "aws_eip" "nat" {
+cluster_endpoint = "https://F1D6E5C260E2618996449EFA62F10DED.gr7.ap-south-1.eks.amazonaws.com"
+cluster_name = "clinicflow"
+cluster_version = "1.31"
+configure_kubectl = "aws eks update-kubeconfig --region ap-south-1 --name clinicflow"
+node_group_status = "ACTIVE"
+private_subnet_ids = [
+  "subnet-01e9e16eb85d5cec4",
+  "subnet-0c92ff5cbaea57726",
+]
+public_subnet_ids = [
+  "subnet-06e26cb847bd18d1e",
+  "subnet-000473db4ddf11d5f",
+]
+vpc_id = "vpc-0e2d1ed18bbfb751f"
 
 === 5. OUTPUTS ===
 
@@ -144,6 +117,7 @@ cluster_endpoint = "https://F1D6E5C260E2618996449EFA62F10DED.gr7.ap-south-1.eks.
 cluster_name = "clinicflow"
 cluster_version = "1.31"
 configure_kubectl = "aws eks update-kubeconfig --region ap-south-1 --name clinicflow"
+node_group_status = "ACTIVE"
 private_subnet_ids = [
   "subnet-01e9e16eb85d5cec4",
   "subnet-0c92ff5cbaea57726",
@@ -167,17 +141,17 @@ $ aws eks describe-cluster --name clinicflow --query 'cluster.{Name:name,Status:
 +----------+------------------------------------------------------------------------------+
 
 $ aws eks describe-nodegroup --cluster-name clinicflow --nodegroup-name clinicflow-ng --query 'nodegroup.{Status:status,Instance:instanceTypes,Desired:scalingConfig.desiredSize}' --output table
--------------------------
-|   DescribeNodegroup   |
-+----------+------------+
-|  Desired |  Status    |
-+----------+------------+
-|  2       |  CREATING  |
-+----------+------------+
-||      Instance       ||
-|+---------------------+|
-||  t3.medium          ||
-|+---------------------+|
+-----------------------
+|  DescribeNodegroup  |
++----------+----------+
+|  Desired | Status   |
++----------+----------+
+|  2       |  ACTIVE  |
++----------+----------+
+||     Instance      ||
+|+-------------------+|
+||  t3.medium        ||
+|+-------------------+|
 
 $ aws ec2 describe-vpcs --vpc-ids vpc-0e2d1ed18bbfb751f --query 'Vpcs[0].{Id:VpcId,Cidr:CidrBlock}' --output table
 -------------------------------------------
@@ -201,9 +175,17 @@ $ aws ec2 describe-subnets --filters Name=vpc-id,Values=vpc-0e2d1ed18bbfb751f --
 +-------------+----------------+----------------------------+----------+
 
 $ aws eks list-addons --cluster-name clinicflow --output table
-------------
-|ListAddons|
-+----------+
+------------------------------
+|         ListAddons         |
++----------------------------+
+||          addons          ||
+|+--------------------------+|
+||  aws-ebs-csi-driver      ||
+||  coredns                 ||
+||  eks-pod-identity-agent  ||
+||  kube-proxy              ||
+||  vpc-cni                 ||
+|+--------------------------+|
 
 === 7. POINT KUBECTL AT IT ===
 
@@ -211,31 +193,36 @@ $ aws eks update-kubeconfig --region ap-south-1 --name clinicflow
 Updated context arn:aws:eks:ap-south-1:043848616679:cluster/clinicflow in /Users/techsaswata/.kube/config
 
 $ kubectl get nodes -o wide
-No resources found
+NAME                                          STATUS   ROLES    AGE   VERSION                INTERNAL-IP    EXTERNAL-IP      OS-IMAGE                        KERNEL-VERSION                    CONTAINER-RUNTIME
+ip-10-40-0-8.ap-south-1.compute.internal      Ready    <none>   72m   v1.31.14-eks-3b4a6ca   10.40.0.8      13.206.202.152   Amazon Linux 2023.12.20260928   6.1.188-233.385.amzn2023.x86_64   containerd://2.2.7+unknown
+ip-10-40-18-226.ap-south-1.compute.internal   Ready    <none>   72m   v1.31.14-eks-3b4a6ca   10.40.18.226   43.204.109.147   Amazon Linux 2023.12.20260928   6.1.188-233.385.amzn2023.x86_64   containerd://2.2.7+unknown
 
 $ kubectl get pods -A --no-headers | wc -l
-       2
+      26
 >> Nodes Ready and the system pods running: the CNI, CoreDNS and
 >> kube-proxy addons all came up, so pods will get addresses and DNS.
 
 === 8. STATE ===
 
 $ terraform state list
-data.aws_availability_zones.available
-data.aws_iam_policy_document.cluster_assume
-data.aws_iam_policy_document.node_assume
-aws_cloudwatch_log_group.eks
 aws_eks_cluster.main
 aws_eks_node_group.main
+aws_eks_pod_identity_association.ebs_csi
 aws_iam_role.cluster
+aws_iam_role.ebs_csi
 aws_iam_role.node
 aws_iam_role_policy_attachment.cluster_policy
+aws_iam_role_policy_attachment.ebs_csi
 aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"]
 aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"]
 aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"]
 aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"]
 aws_internet_gateway.main
+aws_route_table.private[0]
+aws_route_table.private[1]
 aws_route_table.public
+aws_route_table_association.private[0]
+aws_route_table_association.private[1]
 aws_route_table_association.public[0]
 aws_route_table_association.public[1]
 aws_subnet.private[0]
@@ -243,4 +230,4 @@ aws_subnet.private[1]
 aws_subnet.public[0]
 aws_subnet.public[1]
 aws_vpc.main
->> 22 addresses under management.
+>> 35 addresses under management.

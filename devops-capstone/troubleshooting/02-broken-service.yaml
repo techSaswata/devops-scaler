@@ -1,7 +1,7 @@
-# FAULT 2 — the Service selector matches nothing.
+# FAULT 4 — the Service selector matches nothing.
 #
-# Symptom:  the pod is 1/1 Running and healthy; curl to the Service name is
-#           refused or times out.
+# Symptom:  the pod is 1/1 Running and healthy; anything calling the Service
+#           name gets a refused connection or a timeout.
 # Find it:  kubectl get endpoints broken-service -n clinicflow-broken
 #           -> ENDPOINTS <none>
 #           then compare the Service's selector with the pod's labels.
@@ -9,7 +9,7 @@
 #           is NO warning event for a selector that matches nothing. The Service
 #           is reported as perfectly healthy. "The pod is Running" is never
 #           sufficient evidence that a service works.
-# Fix:      app: clinicflow-backend  (hyphen, matching the pod)
+# Fix:      app: broken-probe  (with the hyphen, matching the pods)
 apiVersion: v1
 kind: Service
 metadata:
@@ -19,7 +19,9 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: clinicflowbackend        # <-- missing hyphen; the pods are clinicflow-backend
+    # The pods from 03-broken-probe.yaml carry app=broken-probe. This is the
+    # same string with the hyphen dropped, so it selects nothing at all.
+    app: brokenprobe
   ports:
     - name: http
       port: 8000

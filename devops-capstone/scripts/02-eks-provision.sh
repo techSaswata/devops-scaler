@@ -29,7 +29,7 @@ echo ">> No output means every file is already canonically formatted."
 runfull "terraform validate -no-color"
 
 hr "3. PLAN"
-N=45 runfull "terraform plan -no-color -out=tfplan"
+N=45 runfull "terraform plan -no-color -var use_nat_gateway=false -out=tfplan"
 
 hr "4. APPLY"
 echo "EKS control planes take 8-12 minutes, and the node group another 3-5."

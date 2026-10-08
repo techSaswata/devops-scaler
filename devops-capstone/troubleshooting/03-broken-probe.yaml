@@ -9,7 +9,12 @@
 #           is fine by calling the real path from inside the pod:
 #             kubectl exec <pod> -n clinicflow-broken -- \
 #               python -c "import urllib.request;print(urllib.request.urlopen('http://localhost:8000/health').read())"
-# Fix:      path: /ready
+# Fix:      path: /health
+#
+# NOTE: /health, not /ready. /ready queries the database on purpose, and this
+# lab pod has none -- the DATABASE_URL below is deliberately bogus because the
+# fault being taught is about probe PATHS. Pointing readiness at /ready here
+# would trade a 404 for a 503 and the pod would still never become Ready.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -1,0 +1,9 @@
+target VPC: vpc-0e2d1ed18bbfb751f
+
+=== 1. DELETE THE KUBERNETES OBJECTS THAT OWN AWS RESOURCES ===
+--- load balancers currently owned by Services ---
+  ingress-nginx/ingress-nginx-controller  ->  a97741fcc159147eea380fcf574b3d02-c8100a421ead9cba.elb.ap-south-1.amazonaws.com
+  1 load balancer service(s)
+
+
+$ helm uninstall clinicflow -n clinicflow --wait --timeout 5m || true
