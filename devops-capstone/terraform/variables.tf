@@ -64,3 +64,30 @@ variable "single_nat_gateway" {
   type        = bool
   default     = true
 }
+
+variable "use_nat_gateway" {
+  description = <<-EOT
+    true  - worker nodes run in PRIVATE subnets and egress through a NAT
+            gateway. This is the production shape and the default: nodes have
+            no inbound route from the internet at all.
+
+    false - worker nodes run in PUBLIC subnets with auto-assigned public IPs and
+            egress through the internet gateway. No NAT gateway, and therefore
+            no Elastic IP.
+
+    This exists because of a real constraint rather than a preference. A NAT
+    gateway requires an Elastic IP, and the shared AWS account this was built on
+    is already at its EIP quota (8 allocated against a limit of 5, all belonging
+    to other projects). `terraform apply` failed with:
+
+      Error: creating EC2 EIP: AddressLimitExceeded:
+             The maximum number of addresses has been reached.
+
+    Releasing somebody else's EIP was not an option, so the cluster runs with
+    public nodes. The nodes are still protected by their security group -- what
+    is lost is the second layer, where an inbound route does not exist in the
+    first place. On an account with EIP headroom, leave this true.
+  EOT
+  type        = bool
+  default     = true
+}

@@ -20,3 +20,13 @@ node_max_size      = 4
 # true  = one NAT gateway  (~$0.045/hr) - fine for a short-lived demo
 # false = one NAT per AZ   (~$0.09/hr)  - production shape
 single_nat_gateway = true
+
+# true  = nodes in PRIVATE subnets behind a NAT gateway (production shape, default)
+# false = nodes in PUBLIC subnets, no NAT gateway, no Elastic IP
+#
+# The cluster in outputs/ was built with `false`, and not by choice: a NAT
+# gateway needs an Elastic IP, and the shared account used here is already past
+# its EIP quota (8 allocated, limit 5, all belonging to other projects), so
+# AllocateAddress is refused outright. On an account with EIP headroom, leave
+# this true.
+use_nat_gateway = true

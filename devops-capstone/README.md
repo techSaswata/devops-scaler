@@ -654,6 +654,30 @@ needing a value from it — produces no edge at all. Those are exactly the
 dependencies that fail silently, because the thing that is missing is a
 precondition rather than an argument.
 
+**The account ran out of Elastic IPs, so the architecture had to change.** With
+the ordering fixed, `terraform apply` got as far as the NAT gateway and stopped:
+
+```
+Error: creating EC2 EIP: AddressLimitExceeded:
+       The maximum number of addresses has been reached.
+```
+
+A NAT gateway requires an Elastic IP. This AWS account is shared, and it already
+held **8 EIPs against a limit of 5** — every one of them belonging to another
+project. Releasing someone else's address to make room was not an option, and a
+quota increase is not something to request on an account that is not mine.
+
+So the design acquired a switch rather than a workaround. `use_nat_gateway`
+defaults to `true` — nodes in private subnets, egress through NAT, which is the
+right shape — and when it is `false` the nodes run in the public subnets with
+auto-assigned public IPs and egress through the internet gateway instead. No NAT,
+no EIP. The cluster captured in [outputs/](outputs/) was built with `false`.
+
+What that costs is honest to state: the nodes keep their security group, but they
+lose the outer layer where an inbound route simply does not exist. That is a real
+reduction in defence in depth, accepted deliberately and for a stated reason,
+which is different from not having thought about it.
+
 **EKS node instances do not inherit `default_tags`.** A managed node group does
 not propagate the provider's tags to the EC2 instances it launches, so both
 workers came up with no `Owner` tag. The teardown check was scoped to

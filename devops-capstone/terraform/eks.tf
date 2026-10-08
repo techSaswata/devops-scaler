@@ -45,7 +45,7 @@ resource "aws_eks_node_group" "main" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "${var.project_name}-ng"
   node_role_arn   = aws_iam_role.node.arn
-  subnet_ids      = aws_subnet.private[*].id
+  subnet_ids      = local.node_subnet_ids
   instance_types  = [var.node_instance_type]
   capacity_type   = "ON_DEMAND"
   disk_size       = 20

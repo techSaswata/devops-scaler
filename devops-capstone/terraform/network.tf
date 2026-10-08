@@ -11,6 +11,11 @@ data "aws_availability_zones" "available" {
 
 locals {
   azs = slice(data.aws_availability_zones.available.names, 0, 2)
+
+  # Where the worker nodes go. Private when there is a NAT gateway to give them
+  # egress; public otherwise, because a node with no route off the VPC cannot
+  # reach the EKS API and will never join the cluster.
+  node_subnet_ids = var.use_nat_gateway ? aws_subnet.private[*].id : aws_subnet.public[*].id
   # 10.40.0.0/16 -> /20 blocks. Public get 0,1; private get 2,3.
   public_cidrs  = [for i, _ in local.azs : cidrsubnet(var.vpc_cidr, 4, i)]
   private_cidrs = [for i, _ in local.azs : cidrsubnet(var.vpc_cidr, 4, i + 2)]
@@ -63,13 +68,13 @@ resource "aws_subnet" "private" {
 
 # --- egress for the private subnets -----------------------------------------
 resource "aws_eip" "nat" {
-  count  = var.single_nat_gateway ? 1 : length(local.azs)
+  count  = var.use_nat_gateway ? (var.single_nat_gateway ? 1 : length(local.azs)) : 0
   domain = "vpc"
   tags   = { Name = "${var.project_name}-nat-eip-${count.index}" }
 }
 
 resource "aws_nat_gateway" "main" {
-  count         = var.single_nat_gateway ? 1 : length(local.azs)
+  count         = var.use_nat_gateway ? (var.single_nat_gateway ? 1 : length(local.azs)) : 0
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
   tags          = { Name = "${var.project_name}-nat-${count.index}" }
@@ -91,10 +96,19 @@ resource "aws_route_table" "public" {
 resource "aws_route_table" "private" {
   count  = length(local.azs)
   vpc_id = aws_vpc.main.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = var.single_nat_gateway ? aws_nat_gateway.main[0].id : aws_nat_gateway.main[count.index].id
+
+  # No NAT gateway means no default route out of the private subnets. The table
+  # still exists so the subnets are explicitly associated with something rather
+  # than falling back to the VPC main route table, which is harder to reason
+  # about and easy to change by accident.
+  dynamic "route" {
+    for_each = var.use_nat_gateway ? [1] : []
+    content {
+      cidr_block     = "0.0.0.0/0"
+      nat_gateway_id = var.single_nat_gateway ? aws_nat_gateway.main[0].id : aws_nat_gateway.main[count.index].id
+    }
   }
+
   tags = { Name = "${var.project_name}-private-rt-${count.index}" }
 }
 
