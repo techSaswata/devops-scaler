@@ -1,0 +1,74 @@
+# The whole stack with one command: docker compose up --build
+#
+# Three services, and the ordering between them is enforced rather than hoped
+# for: the backend waits for Postgres to pass its health check, because
+# `depends_on` alone only waits for the container to START, and Postgres accepts
+# TCP connections for a second or two before it will accept queries. Without
+# `condition: service_healthy` the first migration races the database and the
+# backend crash-loops on a cold start.
+name: clinicflow
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: clinic
+      POSTGRES_PASSWORD: clinic_local_dev_only
+      POSTGRES_DB: clinicflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # 55432, not 5432. A natively installed Postgres already listens on
+      # 127.0.0.1:5432 on this machine, and a specific loopback bind beats
+      # Docker's wildcard, so "localhost:5432" would silently reach THAT server
+      # instead of this container -- which is exactly how the first migration
+      # attempt failed with `role "clinic" does not exist`. Moving the host port
+      # removes the ambiguity rather than relying on bind precedence.
+      - "55432:5432"         # host:container, for psql/debugging only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clinic -d clinicflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://clinic:clinic_local_dev_only@postgres:5432/clinicflow
+      ENVIRONMENT: local
+      LOG_LEVEL: INFO
+      # Safe here: compose runs exactly one backend container, so there is no
+      # race. The Helm chart sets this false and migrates from a Job instead.
+      RUN_MIGRATIONS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      BACKEND_HOST: backend
+      BACKEND_PORT: "8000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    # 3000 on the host (what the brief asks for) -> 8080 in the container, which
+    # is the unprivileged port nginx can bind without root.
+    ports:
+      - "3000:8080"
+
+volumes:
+  pgdata:
