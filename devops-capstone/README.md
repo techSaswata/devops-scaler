@@ -391,6 +391,23 @@ The CloudWatch log group is also declared explicitly rather than left for EKS to
 create, so that `terraform destroy` removes it — otherwise it survives the
 teardown and quietly accrues storage charges.
 
+### Applied, and confirmed from outside Terraform
+
+![plan](screenshots/tf4-plan.png)
+![apply](screenshots/tf5-apply.png)
+![cluster exists](screenshots/tf7-the-cluster-exists-asked-of-aws-rather-than-of.png)
+
+```
+Status  : ACTIVE          Version : 1.31
+Nodegroup: ACTIVE         2 x t3.medium
+VPC     : 10.40.0.0/16    4 subnets across 2 AZs (2 public, 2 private)
+```
+
+Existence is checked by **asking AWS**, not by reading Terraform's state. State
+is Terraform's opinion about the world; the API is the world.
+
+![kubectl](screenshots/tf8-point-kubectl-at-it.png)
+
 `terraform.tfvars.example` is committed; `*.tfvars` is gitignored. **No AWS
 credential appears anywhere in this repository**, and `alembic.ini` deliberately
 omits `sqlalchemy.url` for the same reason — the URL is read from the environment.
@@ -452,6 +469,27 @@ matched first and greedily, every API call would be served the `index.html` shel
 and the dashboard would silently render nothing — a failure with no error message
 anywhere.
 
+### Deployed, and serving
+
+![helm install](screenshots/k5-helm-install.png)
+![pods running](screenshots/k7-all-pods-running.png)
+
+Two backend and two frontend replicas, Postgres with a bound PVC, and the
+migration Job completed — spread across both nodes by the pod anti-affinity.
+
+![ingress](screenshots/k10-the-application-through-the-ingress.png)
+
+The SPA at `/`, the API at `/api`, both through one Ingress and one NLB. And in
+a real browser, against the live cluster:
+
+![app on EKS](screenshots/eks-app-dashboard.png)
+
+![security context](screenshots/k13-security-context-verified-from-inside-the-pod.png)
+
+Asserted in the chart, then **checked from inside the running container**:
+`uid=10001(appuser)`, and `touch /forbidden` → `Read-only file system`. A
+`readOnlyRootFilesystem: true` that nobody tests is a comment.
+
 ### Pod Security Admission
 
 The namespace enforces `restricted`. Every workload here already satisfies it —
@@ -494,6 +532,27 @@ kubeProxy:             { enabled: false }
 On EKS the control plane is managed by AWS and is not reachable as pods. Leaving
 these enabled produces permanently-down targets, and a dashboard that is always
 partly red teaches everyone to ignore it.
+
+### Scraped, and moving
+
+![target up](screenshots/mon5-is-the-application-actually-a-target.png)
+![counters move](screenshots/mon7-the-counters-move.png)
+
+Both backend pods are `health=up`. The script then reads
+`http_requests_total`, sends 60 requests through the Ingress, waits for the next
+15s scrape and reads again: **+74**. A counter that is merely *present* proves
+the scrape config works; a counter that *moves* proves the whole path works.
+
+![grafana](screenshots/eks-grafana-dashboard.png)
+
+Six panels, all populated from the live cluster: request rate, p50/p95/p99
+latency from a histogram, targets up, 5xx rate, and CPU/memory per pod from
+cAdvisor.
+
+> The 5xx panel reads **0%**, not "No data", because of one detail:
+> `sum(rate(...{status=~"5.."}[5m])) or vector(0)`. With no 5xx at all the
+> numerator series does not exist, and the panel renders "No data" — which looks
+> like a broken panel rather than a healthy service.
 
 ### Alerts
 
@@ -538,11 +597,30 @@ Fault 2 is a close second: a resource *request* is a scheduling contract, not a
 cap. The scheduler will not overcommit it, so an impossible request leaves the
 pod waiting indefinitely rather than starting and being throttled.
 
+![fault 1](screenshots/ts1-fault-1-of-4-the-pod-never-starts.png)
+![fault 4](screenshots/ts4-fault-4-of-4-a-healthy-pod-that-nothing-can-reac.png)
+
 Run the lab:
 
 ```bash
 IMAGE_TAG=sha-<commit> ./scripts/05-troubleshooting.sh
 ```
+
+### The lab had two bugs of its own, which is its own lesson
+
+Fault 3's *fix* originally pointed readiness at `/ready` — which queries the
+database, and that lab pod deliberately has none. The pod traded a 404 for a 503
+and still never became Ready, which then made **fault 4 unreproducible**: an
+unready pod has no endpoints whatever the selector says. The fix is `/health`.
+
+Fault 4 originally created its selector mismatch by relabelling the pod
+template. The API server rejects that — a Deployment's selector is immutable and
+would no longer have matched its own template — so the patch failed silently and
+pointed the Service at a label that had never existed. Neither the fault nor its
+fix was real. It now mis-selects the label the pods already carry.
+
+Both of those passed a casual read and only showed up when the verification step
+was made to actually wait for the thing it claimed to prove.
 
 ---
 
