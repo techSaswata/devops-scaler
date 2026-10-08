@@ -56,5 +56,13 @@ paths = [
 # did not clear the finding. The honest choice was between rewriting published
 # history and recording a justified, value-scoped exception; this is the latter.
 regexes = [
-  '''supplied-at-deploy-time'''
+  '''supplied-at-deploy-time''',
+
+  # Same category, same reasoning. One commit of the capstone's monitoring
+  # script carried `-u admin:clinicflow-demo` -- the Grafana password for an EKS
+  # cluster that is created and destroyed around a demo and no longer exists.
+  # The script now reads the password the Helm chart generates, out of the
+  # Secret, so no literal remains in the working tree; this excuses only the
+  # historical string.
+  '''clinicflow-demo'''
 ]

@@ -116,8 +116,11 @@ for i in $(seq 1 40); do
 done
 runfull "curl -s http://localhost:3001/api/health"
 echo
+# Read the password the chart generated. Nothing credential-shaped is written
+# down here, which is what the secret scanner is actually asking for.
+GPASS=$(kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 -d)
 echo "--- import the ClinicFlow dashboard ---"
-curl -s -X POST http://admin:clinicflow-demo@localhost:3001/api/dashboards/db \
+curl -s -X POST "http://admin:${GPASS}@localhost:3001/api/dashboards/db" \
   -H 'Content-Type: application/json' \
   -d "$(python3 -c "
 import json
@@ -126,5 +129,5 @@ print(json.dumps({'dashboard':d,'overwrite':True,'folderId':0}))")" \
   | python3 -c "import json,sys;r=json.load(sys.stdin);print('  imported:',r.get('slug'),'status:',r.get('status','ok'),'url:',r.get('url'))"
 echo
 echo "--- does the datasource actually answer? ---"
-curl -s -u admin:clinicflow-demo "http://localhost:3001/api/datasources" \
+curl -s -u "admin:${GPASS}" "http://localhost:3001/api/datasources" \
   | python3 -c "import json,sys;[print('  %-18s %s'%(d['name'],d['type'])) for d in json.load(sys.stdin)]"

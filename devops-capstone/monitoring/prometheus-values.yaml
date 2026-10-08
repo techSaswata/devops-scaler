@@ -29,9 +29,13 @@ prometheus:
 
 grafana:
   enabled: true
-  # Demo cluster, destroyed after the walkthrough. A real deployment reads this
-  # from a Secret; it is written here so the grader can log in.
-  adminPassword: clinicflow-demo
+  # No adminPassword here on purpose. Writing one would put a credential-shaped
+  # literal in the repository -- the secret scanner flags it, and it is right to:
+  # nothing in the text distinguishes a demo password from a real one. The chart
+  # generates a random password instead, and it is read back out of the Secret:
+  #
+  #   kubectl -n monitoring get secret monitoring-grafana \
+  #     -o jsonpath='{.data.admin-password}' | base64 -d
   service:
     type: ClusterIP
   defaultDashboardsEnabled: true
