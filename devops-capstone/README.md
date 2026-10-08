@@ -458,3 +458,181 @@ The namespace enforces `restricted`. Every workload here already satisfies it �
 non-root, no privilege escalation, all capabilities dropped, `RuntimeDefault`
 seccomp — so enforcing it means a *future* manifest that does not is rejected by
 the API server rather than quietly running with more privilege than it needs.
+
+---
+
+## 11. Observability
+
+[`monitoring/`](monitoring/) holds the kube-prometheus-stack values, the alert
+rules and a Grafana dashboard.
+
+`/metrics` comes from `prometheus-fastapi-instrumentator`, which exposes request
+counts, latency **histograms** and the usual process gauges. A histogram rather
+than an average is the point: averages hide the tail, and the tail is what users
+actually experience.
+
+Two configuration details matter more than they look:
+
+```yaml
+serviceMonitorSelectorNilUsesHelmValues: false
+serviceMonitorSelector: {}
+serviceMonitorNamespaceSelector: {}
+```
+
+The chart's default is to scrape only ServiceMonitors carrying its own release
+label. A ServiceMonitor created by a *different* chart — which is exactly what
+the ClinicFlow chart does — is then silently ignored. The target simply never
+appears, and nothing anywhere says why.
+
+```yaml
+kubeEtcd:              { enabled: false }
+kubeScheduler:         { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeProxy:             { enabled: false }
+```
+
+On EKS the control plane is managed by AWS and is not reachable as pods. Leaving
+these enabled produces permanently-down targets, and a dashboard that is always
+partly red teaches everyone to ignore it.
+
+### Alerts
+
+| Alert | Expression | For |
+| --- | --- | --- |
+| `ClinicFlowBackendDown` | `up{...} == 0` | 2m |
+| `ClinicFlowHighErrorRate` | 5xx ÷ total > 5% | 2m |
+| `ClinicFlowSlowRequests` | p95 latency > 1s | 5m |
+| `ClinicFlowPodRestarting` | > 3 restarts in 15m | 5m |
+
+`up` is synthetic — Prometheus writes `1` when the scrape succeeded — so it keeps
+working when the application is too broken to describe itself, which is precisely
+when it is needed.
+
+The `for:` clause is the difference between an alert and a twitch. The condition
+must hold continuously before anything fires, so a single bad scrape pages
+nobody.
+
+---
+
+## 12. Troubleshooting lab
+
+[`troubleshooting/`](troubleshooting/) plants four faults in a separate
+`clinicflow-broken` namespace, so the working deployment is untouched.
+
+They cover the four layers a request must pass through, and each produces a
+**different** symptom:
+
+| # | Fault | Symptom | Where the answer is |
+| --- | --- | --- | --- |
+| 1 | image tag does not exist | `ErrImagePull` | kubelet events |
+| 2 | 16 CPUs requested | `Pending`, never scheduled | scheduler events |
+| 3 | readiness probe on `/healthz` | `Running` but `0/1 READY` | probe events |
+| 4 | Service selector missing a hyphen | Ready pod, **no endpoints** | the endpoint list |
+
+Fault 4 is the one worth dwelling on. A Service builds its endpoint list purely
+by label match, and **there is no warning event for a selector that matches
+nothing** — `kubectl get svc` reports it as perfectly healthy. "The pod is
+Running" is never sufficient evidence that a service works.
+
+Fault 2 is a close second: a resource *request* is a scheduling contract, not a
+cap. The scheduler will not overcommit it, so an impossible request leaves the
+pod waiting indefinitely rather than starting and being throttled.
+
+Run the lab:
+
+```bash
+IMAGE_TAG=sha-<commit> ./scripts/05-troubleshooting.sh
+```
+
+---
+
+## 14. What went wrong
+
+Every one of these cost real time, and each is in the repository's history
+rather than tidied away.
+
+**A natively installed Postgres stole the connection.** The first Alembic run
+failed with `role "clinic" does not exist` — against a container whose role was
+definitely `clinic`. The machine had its own Postgres on `127.0.0.1:5432`, and a
+specific loopback bind beats Docker's `*:5432` wildcard, so `localhost:5432`
+reached the wrong server entirely. Moving the published port to `55432` removes
+the ambiguity instead of depending on bind precedence. *A connection that
+succeeds is not proof it reached the thing you meant.*
+
+**The Trivy gate failed both images on its first run, and it was right to.**
+42 findings in the frontend's stale Alpine base, 3 in a transitively-pinned
+starlette. Neither image was published. Pinning a base image pins its CVEs too,
+so the pin is a maintenance commitment.
+
+**Fixing one CVE broke two other things.** starlette → FastAPI → instrumentator,
+each cap forcing the next bump, ending in
+`AttributeError: '_IncludedRouter' object has no attribute 'path'` on every
+request. The dependency graph decides how big a security fix is, not the CVE.
+
+**A green pipeline went red with no code change.** `error writing layer blob:
+not_found` on a build that was fine. Both matrix jobs shared one `type=gha`
+buildx cache scope and wrote the same manifest concurrently. Scoping the cache by
+component fixed it. *Not every red build is about your code.*
+
+**Terraform built the nodes before it built their way out.** The worst one. The
+EKS control plane went `ACTIVE`, two `t3.medium` instances came up in the private
+subnets, and then nothing. `kubectl get nodes` returned *No resources found*; the
+node group sat in `CREATING` with `health.issues` empty — an empty list, not an
+error — and eventually failed with nothing anywhere naming a cause.
+
+The cause was ordering. `aws_eks_node_group` references the private subnets and
+the IAM role, so Terraform inferred edges to those and to nothing else. It had
+not yet created the NAT gateway, the private route tables, or their associations,
+because **no resource in the graph said it had to**. The nodes booted into
+subnets with no route off the VPC, could not reach the EKS API or any registry,
+and so never registered.
+
+A private subnet is not usable when it exists; it is usable when it has **egress**.
+Terraform cannot infer that, so it is now stated:
+
+```hcl
+depends_on = [
+  aws_iam_role_policy_attachment.node,
+  aws_nat_gateway.main,
+  aws_route_table_association.private,
+]
+```
+
+The general lesson is about implicit dependencies: Terraform's graph is built
+from *references*, and a resource that needs another to be useful — rather than
+needing a value from it — produces no edge at all. Those are exactly the
+dependencies that fail silently, because the thing that is missing is a
+precondition rather than an argument.
+
+**EKS node instances do not inherit `default_tags`.** A managed node group does
+not propagate the provider's tags to the EC2 instances it launches, so both
+workers came up with no `Owner` tag. The teardown check was scoped to
+`tag:Owner=24BCS10248` and therefore reported *"no running instances of mine"*
+while two instances were running and billing. The check now scopes to the VPC —
+the boundary Terraform actually owns — and reports the tag match separately. *A
+cleanup check that cannot see the thing it is cleaning up is worse than none.*
+
+**GHCR rejected a push after every security job had passed.**
+`${{ github.repository }}` is `techSaswata/devops-scaler` — capital S — and OCI
+repository names must be lowercase. `docker/metadata-action` lowercases `images`
+for you; hand-interpolating the tag removes that safety net.
+
+**A region-wide check that could never pass.** The teardown script originally
+waited for the region's load-balancer count to reach zero before destroying the
+VPC. This AWS account is shared and another project already had one, so the wait
+would have run its full timeout and then proceeded anyway — *a check that cannot
+pass is worse than no check, because it still looks like one.* It is now scoped
+to this project's own VPC, and it waits for the ENIs to clear too.
+
+### Things that are deliberately imperfect
+
+- **Postgres runs in-cluster**, as a single StatefulSet replica with no automated
+  backups. That is right for a graded project and wrong for a clinic. A real
+  deployment points `DATABASE_URL` at RDS and deletes that section of the chart,
+  which is why the URL is assembled from values rather than hard-coded.
+- **The tests run on SQLite**, not Postgres. Stated in full in
+  [Tests](#5-tests), along with the one place it could have hidden a bug and
+  what was done about it.
+- **Grafana's admin password is in the values file.** The cluster lives for the
+  length of a demo and is then destroyed; a persistent deployment reads it from a
+  Secret.

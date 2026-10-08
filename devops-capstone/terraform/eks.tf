@@ -60,8 +60,39 @@ resource "aws_eks_node_group" "main" {
     max_unavailable = 1
   }
 
-  depends_on = [aws_iam_role_policy_attachment.node]
+  # ALL THREE are required, and the last two were learned the hard way.
+  #
+  # Terraform infers dependencies from references, and this resource references
+  # only the subnets and the role -- not the route tables that give those
+  # subnets a way out. So on the first run it launched both nodes into private
+  # subnets that still had no route to the NAT gateway. The instances came up,
+  # could not reach the EKS API or any registry, never registered, and
+  # `kubectl get nodes` returned "No resources found" while the node group sat
+  # in CREATING with health.issues empty -- no error anywhere pointing at
+  # routing.
+  #
+  # A private subnet is not usable the moment it exists; it is usable when it
+  # has egress. These two depends_on lines say so explicitly.
+  depends_on = [
+    aws_iam_role_policy_attachment.node,
+    aws_nat_gateway.main,
+    aws_route_table_association.private,
+  ]
 
+  # These tags land on the NODE GROUP, and -- this is the trap -- EKS does NOT
+  # propagate them, nor the provider's default_tags, onto the EC2 instances the
+  # group launches. The worker nodes come up with no Owner tag at all.
+  #
+  # That matters for cleanup verification rather than for cost reporting: a
+  # teardown check scoped to `tag:Owner` reports "nothing of mine is running"
+  # while two t3.medium instances are very much running and billing. This was
+  # observed on this cluster, and scripts/09-destroy.sh now verifies by VPC --
+  # the boundary Terraform actually owns -- and reports the tag check separately.
+  #
+  # The alternative fix is a launch template with tag_specifications for
+  # "instance" and "volume". It is the better long-term answer; it is noted here
+  # rather than applied so that this configuration matches the run the outputs
+  # in ../outputs/ were captured from.
   tags = { Name = "${var.project_name}-node" }
 }
 

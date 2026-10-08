@@ -18,6 +18,9 @@ runfull(){ echo; echo "\$ $*"; local o; o=$(eval "$@" 2>&1); echo "$o" | tail -$
 D="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$D/terraform"
 REGION=ap-south-1
+# Captured BEFORE destroy, because afterwards terraform output has nothing to say.
+MYVPC=$(terraform output -raw vpc_id 2>/dev/null || echo "")
+echo "target VPC: ${MYVPC:-<none>}"
 
 hr "1. DELETE THE KUBERNETES OBJECTS THAT OWN AWS RESOURCES"
 if kubectl cluster-info >/dev/null 2>&1; then
@@ -48,7 +51,6 @@ print('  (none)' if n==0 else f'  {n} load balancer service(s)')"
   # already had another project's load balancer in it, so waiting for the total
   # to reach zero would have waited forever and then proceeded anyway -- a check
   # that cannot pass is worse than no check, because it looks like one.
-  MYVPC=$(terraform output -raw vpc_id 2>/dev/null || echo "")
   if [ -n "$MYVPC" ]; then
     for i in $(seq 1 60); do
       CLB=$(aws elb describe-load-balancers --region $REGION \
@@ -89,11 +91,27 @@ echo "\$ aws ec2 describe-vpcs --filters tag:Owner=24BCS10248"
 V=$(aws ec2 describe-vpcs --region $REGION --filters 'Name=tag:Owner,Values=24BCS10248' --query 'Vpcs[].VpcId' --output text 2>/dev/null)
 [ -z "$V" ] && echo "  no VPC of mine" || echo "  $V  <-- NEEDS ATTENTION"
 
-echo "\$ aws ec2 describe-instances  (non-terminated, tagged mine)"
-I=$(aws ec2 describe-instances --region $REGION \
+# Checked by VPC, NOT by tag, and that distinction is the whole point.
+#
+# An EKS managed node group does NOT propagate the provider's default_tags to
+# the EC2 instances it launches -- the worker nodes came up with no Owner tag at
+# all. A tag-scoped check therefore reported "nothing of mine is running" while
+# two t3.medium instances were running and billing. The VPC is the authoritative
+# boundary here because Terraform created it and nothing else is in it.
+echo "\$ aws ec2 describe-instances  (anything still alive in MY VPC)"
+if [ -n "${MYVPC:-}" ]; then
+  I=$(aws ec2 describe-instances --region $REGION \
+        --filters "Name=vpc-id,Values=$MYVPC" 'Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down' \
+        --query 'Reservations[].Instances[].[InstanceId,State.Name]' --output text 2>/dev/null)
+  [ -z "$I" ] && echo "  no instances left in the VPC" || echo "  $I  <-- NEEDS ATTENTION"
+else
+  echo "  (VPC already gone, so nothing can be left in it)"
+fi
+echo "\$ aws ec2 describe-instances  (and separately, anything tagged mine)"
+IT=$(aws ec2 describe-instances --region $REGION \
       --filters 'Name=tag:Owner,Values=24BCS10248' 'Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down' \
       --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null)
-[ -z "$I" ] && echo "  no running instances of mine" || echo "  $I  <-- NEEDS ATTENTION"
+[ -z "$IT" ] && echo "  nothing tagged mine" || echo "  $IT  <-- NEEDS ATTENTION"
 
 echo "\$ aws ec2 describe-nat-gateways  (NAT bills by the hour even when idle)"
 NG=$(aws ec2 describe-nat-gateways --region $REGION \
