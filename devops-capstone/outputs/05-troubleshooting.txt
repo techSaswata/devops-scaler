@@ -1,0 +1,5 @@
+
+=== FAULT 1 of 4 — the pod never starts ===
+
+--- IDENTIFY ---
+deployment.apps/broken-image created

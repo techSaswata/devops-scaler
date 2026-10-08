@@ -1,15 +1,15 @@
 
-=== 0. THE CLUSTER ===
+=== 1. THE CLUSTER ===
 
 $ kubectl config current-context
 arn:aws:eks:ap-south-1:043848616679:cluster/clinicflow
 
 $ kubectl get nodes -o wide
 NAME                                          STATUS   ROLES    AGE   VERSION                INTERNAL-IP    EXTERNAL-IP      OS-IMAGE                        KERNEL-VERSION                    CONTAINER-RUNTIME
-ip-10-40-0-8.ap-south-1.compute.internal      Ready    <none>   16m   v1.31.14-eks-3b4a6ca   10.40.0.8      13.206.202.152   Amazon Linux 2023.12.20260928   6.1.188-233.385.amzn2023.x86_64   containerd://2.2.7+unknown
-ip-10-40-18-226.ap-south-1.compute.internal   Ready    <none>   16m   v1.31.14-eks-3b4a6ca   10.40.18.226   43.204.109.147   Amazon Linux 2023.12.20260928   6.1.188-233.385.amzn2023.x86_64   containerd://2.2.7+unknown
+ip-10-40-0-8.ap-south-1.compute.internal      Ready    <none>   32m   v1.31.14-eks-3b4a6ca   10.40.0.8      13.206.202.152   Amazon Linux 2023.12.20260928   6.1.188-233.385.amzn2023.x86_64   containerd://2.2.7+unknown
+ip-10-40-18-226.ap-south-1.compute.internal   Ready    <none>   32m   v1.31.14-eks-3b4a6ca   10.40.18.226   43.204.109.147   Amazon Linux 2023.12.20260928   6.1.188-233.385.amzn2023.x86_64   containerd://2.2.7+unknown
 
-=== 1. INGRESS CONTROLLER ===
+=== 2. INGRESS CONTROLLER ===
 
 $ helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx 2>&1 | tail -1
 "ingress-nginx" already exists with the same configuration, skipping
@@ -46,23 +46,56 @@ If TLS is enabled for the Ingress, a Secret containing the certificate and key m
 
 $ kubectl get svc -n ingress-nginx ingress-nginx-controller
 NAME                       TYPE           CLUSTER-IP       EXTERNAL-IP                                                                      PORT(S)                      AGE
-ingress-nginx-controller   LoadBalancer   172.20.240.192   a97741fcc159147eea380fcf574b3d02-c8100a421ead9cba.elb.ap-south-1.amazonaws.com   80:30933/TCP,443:32466/TCP   4m3s
+ingress-nginx-controller   LoadBalancer   172.20.240.192   a97741fcc159147eea380fcf574b3d02-c8100a421ead9cba.elb.ap-south-1.amazonaws.com   80:30933/TCP,443:32466/TCP   20m
 
 --- waiting for AWS to attach a hostname to the load balancer ---
   a97741fcc159147eea380fcf574b3d02-c8100a421ead9cba.elb.ap-south-1.amazonaws.com
 LB=a97741fcc159147eea380fcf574b3d02-c8100a421ead9cba.elb.ap-south-1.amazonaws.com
 
-=== 2. NAMESPACE ===
+=== 3. METRICS-SERVER ===
+
+$ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+serviceaccount/metrics-server created
+clusterrole.rbac.authorization.k8s.io/system:aggregated-metrics-reader created
+clusterrole.rbac.authorization.k8s.io/system:metrics-server created
+rolebinding.rbac.authorization.k8s.io/metrics-server-auth-reader created
+clusterrolebinding.rbac.authorization.k8s.io/metrics-server:system:auth-delegator created
+clusterrolebinding.rbac.authorization.k8s.io/system:metrics-server created
+service/metrics-server created
+deployment.apps/metrics-server created
+apiservice.apiregistration.k8s.io/v1beta1.metrics.k8s.io created
+
+$ kubectl -n kube-system rollout status deployment/metrics-server --timeout=5m
+Waiting for deployment "metrics-server" rollout to finish: 0 of 1 updated replicas are available...
+deployment "metrics-server" successfully rolled out
+
+--- it answers, rather than merely existing ---
+  metrics API answering after ~5s
+
+$ kubectl top nodes
+NAME                                          CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)   
+ip-10-40-0-8.ap-south-1.compute.internal      49m          2%       1005Mi          30%         
+ip-10-40-18-226.ap-south-1.compute.internal   145m         7%       1036Mi          31%         
+
+=== 4. NAMESPACE AND STORAGE CLASS ===
 
 $ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/devops-capstone/k8s/namespace.yaml
 namespace/clinicflow unchanged
 
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/devops-capstone/k8s/storageclass.yaml
+storageclass.storage.k8s.io/gp3 unchanged
+
+$ kubectl get storageclass
+NAME            PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+gp2             kubernetes.io/aws-ebs   Delete          WaitForFirstConsumer   false                  72m
+gp3 (default)   ebs.csi.aws.com         Delete          WaitForFirstConsumer   true                   13m
+
 $ kubectl get ns clinicflow --show-labels
-NAME         STATUS   AGE     LABELS
-clinicflow   Active   3m34s   app.kubernetes.io/name=clinicflow,kubernetes.io/metadata.name=clinicflow,pod-security.kubernetes.io/enforce-version=latest,pod-security.kubernetes.io/enforce=restricted,pod-security.kubernetes.io/warn=restricted
+NAME         STATUS   AGE   LABELS
+clinicflow   Active   20m   app.kubernetes.io/name=clinicflow,kubernetes.io/metadata.name=clinicflow,pod-security.kubernetes.io/enforce-version=latest,pod-security.kubernetes.io/enforce=restricted,pod-security.kubernetes.io/warn=restricted
 >> Pod Security Admission is enforced at 'restricted' on this namespace.
 
-=== 3. HELM INSTALL ===
+=== 5. HELM INSTALL ===
 
 $ helm lint /Users/techsaswata/Downloads/devops-scaler/devops-capstone/helm/clinicflow
 ==> Linting /Users/techsaswata/Downloads/devops-scaler/devops-capstone/helm/clinicflow
@@ -73,3 +106,207 @@ $ helm lint /Users/techsaswata/Downloads/devops-scaler/devops-capstone/helm/clin
 deploying image tag: sha-fe66d75bff554797612f9b5762dc8783cac6e7fd
 
 $ helm upgrade --install clinicflow /Users/techsaswata/Downloads/devops-scaler/devops-capstone/helm/clinicflow   --namespace clinicflow   --set backend.image.tag=sha-fe66d75bff554797612f9b5762dc8783cac6e7fd   --set frontend.image.tag=sha-fe66d75bff554797612f9b5762dc8783cac6e7fd   --set ingress.host=clinicflow.local   --wait --timeout 12m
+Release "clinicflow" does not exist. Installing it now.
+NAME: clinicflow
+LAST DEPLOYED: Thu Oct  8 20:00:59 2026
+NAMESPACE: clinicflow
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+NOTES:
+ClinicFlow 1.0.0 — release "clinicflow", revision 1
+
+  Namespace:  clinicflow
+  Backend:    ghcr.io/techsaswata/devops-scaler/clinicflow-backend:sha-fe66d75bff554797612f9b5762dc8783cac6e7fd
+  Frontend:   ghcr.io/techsaswata/devops-scaler/clinicflow-frontend:sha-fe66d75bff554797612f9b5762dc8783cac6e7fd
+  Postgres:   in-cluster (5Gi)
+  Autoscaling: backend 2-6, frontend 2-4
+
+  Reach it through the ingress controller's address:
+
+    kubectl -n ingress-nginx get svc ingress-nginx-controller
+    curl -H 'Host: clinicflow.local' http://<ADDRESS>/
+
+  Without an ingress, port-forward instead:
+
+    kubectl -n clinicflow port-forward svc/clinicflow-clinicflow-frontend 3000:80
+
+=== 6. WHAT HELM CREATED ===
+
+$ helm list -n clinicflow
+NAME      	NAMESPACE 	REVISION	UPDATED                            	STATUS  	CHART           	APP VERSION
+clinicflow	clinicflow	1       	2026-10-08 20:00:59.29181 +0530 IST	deployed	clinicflow-1.0.0	1.0.0      
+
+$ kubectl get all -n clinicflow
+NAME                                                  READY   STATUS      RESTARTS   AGE
+pod/clinicflow-clinicflow-backend-7ff9b8d6f9-bsrd6    1/1     Running     0          33s
+pod/clinicflow-clinicflow-backend-7ff9b8d6f9-vc78z    1/1     Running     0          18s
+pod/clinicflow-clinicflow-frontend-57fc56f74d-2bm4g   1/1     Running     0          33s
+pod/clinicflow-clinicflow-frontend-57fc56f74d-xpz2c   1/1     Running     0          18s
+pod/clinicflow-clinicflow-migrate-1-qf7xc             0/1     Completed   0          32s
+pod/clinicflow-clinicflow-postgres-0                  1/1     Running     0          33s
+
+NAME                                     TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
+service/clinicflow-clinicflow-backend    ClusterIP   172.20.223.246   <none>        8000/TCP   33s
+service/clinicflow-clinicflow-frontend   ClusterIP   172.20.186.38    <none>        80/TCP     33s
+service/clinicflow-clinicflow-postgres   ClusterIP   None             <none>        5432/TCP   33s
+
+NAME                                             READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/clinicflow-clinicflow-backend    2/2     2            2           33s
+deployment.apps/clinicflow-clinicflow-frontend   2/2     2            2           33s
+
+NAME                                                        DESIRED   CURRENT   READY   AGE
+replicaset.apps/clinicflow-clinicflow-backend-7ff9b8d6f9    2         2         2       33s
+replicaset.apps/clinicflow-clinicflow-frontend-57fc56f74d   2         2         2       33s
+
+NAME                                              READY   AGE
+statefulset.apps/clinicflow-clinicflow-postgres   1/1     33s
+
+NAME                                                                 REFERENCE                                   TARGETS              MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/clinicflow-clinicflow-backend    Deployment/clinicflow-clinicflow-backend    cpu: <unknown>/70%   2         6         2          33s
+horizontalpodautoscaler.autoscaling/clinicflow-clinicflow-frontend   Deployment/clinicflow-clinicflow-frontend   cpu: 10%/80%         2         4         2          33s
+
+NAME                                        STATUS     COMPLETIONS   DURATION   AGE
+job.batch/clinicflow-clinicflow-migrate-1   Complete   1/1           27s        33s
+
+$ kubectl get pvc,ingress,secret,configmap -n clinicflow
+NAME                                                          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/data-clinicflow-clinicflow-postgres-0   Bound    pvc-9b6fdc08-b7a6-4e65-aa08-c93b1209c4e1   5Gi        RWO            gp3            <unset>                 34s
+
+NAME                                              CLASS   HOSTS              ADDRESS   PORTS   AGE
+ingress.networking.k8s.io/clinicflow-clinicflow   nginx   clinicflow.local             80      33s
+
+NAME                                      TYPE                 DATA   AGE
+secret/clinicflow-clinicflow-db           Opaque               1      17m
+secret/sh.helm.release.v1.clinicflow.v1   helm.sh/release.v1   1      34s
+
+NAME                                     DATA   AGE
+configmap/clinicflow-clinicflow-config   6      34s
+configmap/kube-root-ca.crt               1      21m
+
+=== 7. ALL PODS RUNNING ===
+
+$ kubectl get pods -n clinicflow -o wide
+NAME                                              READY   STATUS      RESTARTS   AGE   IP             NODE                                          NOMINATED NODE   READINESS GATES
+clinicflow-clinicflow-backend-7ff9b8d6f9-bsrd6    1/1     Running     0          35s   10.40.8.93     ip-10-40-0-8.ap-south-1.compute.internal      <none>           <none>
+clinicflow-clinicflow-backend-7ff9b8d6f9-vc78z    1/1     Running     0          20s   10.40.24.35    ip-10-40-18-226.ap-south-1.compute.internal   <none>           <none>
+clinicflow-clinicflow-frontend-57fc56f74d-2bm4g   1/1     Running     0          35s   10.40.27.253   ip-10-40-18-226.ap-south-1.compute.internal   <none>           <none>
+clinicflow-clinicflow-frontend-57fc56f74d-xpz2c   1/1     Running     0          20s   10.40.10.147   ip-10-40-0-8.ap-south-1.compute.internal      <none>           <none>
+clinicflow-clinicflow-migrate-1-qf7xc             0/1     Completed   0          34s   10.40.13.192   ip-10-40-0-8.ap-south-1.compute.internal      <none>           <none>
+clinicflow-clinicflow-postgres-0                  1/1     Running     0          35s   10.40.30.3     ip-10-40-18-226.ap-south-1.compute.internal   <none>           <none>
+
+--- replica counts: the rubric asks for at least 2 of each ---
+  backend   2/2 ready
+  frontend  2/2 ready
+
+--- the anti-affinity actually spread them across nodes ---
+clinicflow-clinicflow-postgres-0                  ip-10-40-18-226.ap-south-1.compute.internal
+clinicflow-clinicflow-migrate-1-qf7xc             ip-10-40-0-8.ap-south-1.compute.internal
+clinicflow-clinicflow-backend-7ff9b8d6f9-bsrd6    ip-10-40-0-8.ap-south-1.compute.internal
+clinicflow-clinicflow-backend-7ff9b8d6f9-vc78z    ip-10-40-18-226.ap-south-1.compute.internal
+clinicflow-clinicflow-frontend-57fc56f74d-xpz2c   ip-10-40-0-8.ap-south-1.compute.internal
+clinicflow-clinicflow-frontend-57fc56f74d-2bm4g   ip-10-40-18-226.ap-south-1.compute.internal
+
+=== 8. THE MIGRATION RAN AS A JOB, NOT IN THE APP CONTAINERS ===
+
+$ kubectl get jobs -n clinicflow
+NAME                              STATUS     COMPLETIONS   DURATION   AGE
+clinicflow-clinicflow-migrate-1   Complete   1/1           27s        38s
+
+$ kubectl logs -n clinicflow job/$(kubectl get jobs -n clinicflow -o jsonpath='{.items[0].metadata.name}') --tail=12 --all-containers 2>&1 || true
+clinicflow-clinicflow-postgres:5432 - no response
+waiting for postgres...
+clinicflow-clinicflow-postgres:5432 - no response
+waiting for postgres...
+clinicflow-clinicflow-postgres:5432 - no response
+waiting for postgres...
+clinicflow-clinicflow-postgres:5432 - no response
+waiting for postgres...
+clinicflow-clinicflow-postgres:5432 - no response
+waiting for postgres...
+clinicflow-clinicflow-postgres:5432 - accepting connections
+postgres is accepting connections
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 262e4b35c25c, initial clinic schema
+$ alembic version in the live database
+262e4b35c25c
+>> With two backend replicas, running Alembic in the app containers would
+>> mean two pods racing to migrate the same database on every rollout.
+
+=== 9. SERVICES AND ENDPOINTS ===
+
+$ kubectl get svc -n clinicflow
+NAME                             TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
+clinicflow-clinicflow-backend    ClusterIP   172.20.223.246   <none>        8000/TCP   42s
+clinicflow-clinicflow-frontend   ClusterIP   172.20.186.38    <none>        80/TCP     42s
+clinicflow-clinicflow-postgres   ClusterIP   None             <none>        5432/TCP   42s
+
+--- a Service with no endpoints is the silent failure; check them ---
+clinicflow-clinicflow-backend-w9j7j    [10.40.8.93],[10.40.24.35]      8000
+clinicflow-clinicflow-frontend-spsjh   [10.40.27.253],[10.40.10.147]   8080
+clinicflow-clinicflow-postgres-99xtq   [10.40.30.3]                    5432
+
+=== 10. THE APPLICATION THROUGH THE INGRESS ===
+
+$ kubectl get ingress -n clinicflow
+NAME                    CLASS   HOSTS              ADDRESS                                                                          PORTS   AGE
+clinicflow-clinicflow   nginx   clinicflow.local   a97741fcc159147eea380fcf574b3d02-c8100a421ead9cba.elb.ap-south-1.amazonaws.com   80      43s
+  waiting for http://a97741fcc159147eea380fcf574b3d02-c8100a421ead9cba.elb.ap-south-1.amazonaws.com/  HTTP 200 after ~5s
+
+$ curl -H 'Host: clinicflow.local' http://$LB/   (the SPA)
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClinicFlow — Appointment Management</title>
+    <script typ
+
+$ curl -H 'Host: clinicflow.local' http://$LB/api/appointments/stats
+{"total":0,"scheduled":0,"completed":0,"cancelled":0,"no_show":0,"upcoming_7_days":0,"doctors":0,"patients":0,"completion_rate":0.0}
+$ curl .../health and .../ready on the backend
+  (ignored)
+  /health {"status":"healthy"}
+  /ready {"status":"ready","database":"reachable"}
+
+=== 11. SEED AND READ BACK THROUGH THE INGRESS ===
+  created: Chest pain follow-up
+  created: Eczema review
+  created: ECG results
+
+$ GET /api/appointments/stats
+{
+    "total": 3,
+    "scheduled": 3,
+    "completed": 0,
+    "cancelled": 0,
+    "no_show": 0,
+    "upcoming_7_days": 3,
+    "doctors": 2,
+    "patients": 2,
+    "completion_rate": 0.0
+}
+
+=== 12. HPA ===
+
+$ kubectl get hpa -n clinicflow
+NAME                             REFERENCE                                   TARGETS              MINPODS   MAXPODS   REPLICAS   AGE
+clinicflow-clinicflow-backend    Deployment/clinicflow-clinicflow-backend    cpu: <unknown>/70%   2         6         2          48s
+clinicflow-clinicflow-frontend   Deployment/clinicflow-clinicflow-frontend   cpu: 2%/80%          2         4         2          48s
+>> minReplicas 2 for both, so the HPA holds the deployment at two even
+>> at idle. The Deployments deliberately omit .spec.replicas when
+>> autoscaling is on, so Helm and the HPA cannot fight over the number.
+
+=== 13. SECURITY CONTEXT, VERIFIED FROM INSIDE THE POD ===
+
+$ kubectl get pod -n clinicflow -l app.kubernetes.io/component=backend -o jsonpath='runAsNonRoot={.items[0].spec.securityContext.runAsNonRoot}  uid={.items[0].spec.securityContext.runAsUser}  readOnlyRootFS={.items[0].spec.containers[0].securityContext.readOnlyRootFilesystem}  caps={.items[0].spec.containers[0].securityContext.capabilities.drop}{"\n"}'
+runAsNonRoot=true  uid=10001  readOnlyRootFS=true  caps=["ALL"]
+
+$ kubectl exec -n clinicflow deploy/clinicflow-clinicflow-backend -- id 2>&1 | grep -v Defaulted
+uid=10001(appuser) gid=10001(appuser) groups=10001(appuser)
+$ kubectl exec ... -- touch /forbidden
+touch: cannot touch '/forbidden': Read-only file system
+command terminated with exit code 1
+>> Read-only root rejected the write.

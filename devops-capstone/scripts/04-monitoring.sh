@@ -58,6 +58,23 @@ hr "5. IS THE APPLICATION ACTUALLY A TARGET?"
 echo "A ServiceMonitor that EXISTS and a target that is SCRAPED are different"
 echo "claims. Only the second one matters, so ask Prometheus directly."
 echo
+# Poll rather than ask once. Creating a ServiceMonitor does not make a target
+# appear instantly: the operator has to notice it, regenerate the scrape config,
+# and Prometheus has to reload it. Asking immediately after `helm upgrade`
+# reported "NO TARGET" for a ServiceMonitor that was perfectly correct and
+# showed up about forty seconds later -- a false negative that reads exactly
+# like a real misconfiguration.
+printf '  waiting for the target to be picked up '
+for i in $(seq 1 40); do
+  n=$(curl -s "$PROM/api/v1/targets?state=active" | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: print(0); raise SystemExit
+print(len([t for t in d['data']['activeTargets'] if t['labels'].get('namespace')=='clinicflow']))" 2>/dev/null)
+  [ "${n:-0}" -gt 0 ] 2>/dev/null && { echo " $n target(s) after ~$((i*5))s"; break; }
+  printf '.'; sleep 5
+done
+
 echo "\$ GET $PROM/api/v1/targets"
 curl -s "$PROM/api/v1/targets?state=active" | python3 -c "
 import json,sys
@@ -127,13 +144,26 @@ echo
 # down here, which is what the secret scanner is actually asking for.
 GPASS=$(kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 -d)
 echo "--- import the ClinicFlow dashboard ---"
+# The payload is built into a FILE rather than inlined into the curl command.
+# Inlining it through $(python3 -c "...") let the shell word-split the JSON on
+# its braces and colons, and curl received fragments like `'dashboard':d` as
+# separate arguments. A file has no quoting to get wrong.
+python3 - "$D/monitoring/grafana-dashboard.json" > /tmp/cf-dash-payload.json <<'PYEOF'
+import json, sys
+dash = json.load(open(sys.argv[1]))
+json.dump({"dashboard": dash, "overwrite": True, "folderId": 0}, sys.stdout)
+PYEOF
 curl -s -X POST "http://admin:${GPASS}@localhost:3001/api/dashboards/db" \
   -H 'Content-Type: application/json' \
-  -d "$(python3 -c "
-import json
-d=json.load(open('$D/monitoring/grafana-dashboard.json'))
-print(json.dumps({'dashboard':d,'overwrite':True,'folderId':0}))")" \
-  | python3 -c "import json,sys;r=json.load(sys.stdin);print('  imported:',r.get('slug'),'status:',r.get('status','ok'),'url:',r.get('url'))"
+  --data @/tmp/cf-dash-payload.json \
+  | python3 -c "
+import json,sys
+try:
+    r=json.load(sys.stdin)
+except Exception as e:
+    print('  import failed to return JSON:', e); raise SystemExit(1)
+print('  imported:', r.get('slug'), ' status:', r.get('status','ok'), ' url:', r.get('url'), ' version:', r.get('version'))"
+
 echo
 echo "--- does the datasource actually answer? ---"
 curl -s -u "admin:${GPASS}" "http://localhost:3001/api/datasources" \

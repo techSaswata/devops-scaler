@@ -1,0 +1,162 @@
+
+=== 1. INSTALL kube-prometheus-stack ===
+
+$ helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>&1 | tail -1
+"prometheus-community" already exists with the same configuration, skipping
+
+$ helm repo update 2>&1 | tail -1
+Update Complete. ⎈Happy Helming!⎈
+
+$ helm upgrade --install monitoring prometheus-community/kube-prometheus-stack   --namespace monitoring --create-namespace   -f /Users/techsaswata/Downloads/devops-scaler/devops-capstone/monitoring/prometheus-values.yaml   --wait --timeout 15m
+NAME: monitoring
+LAST DEPLOYED: Thu Oct  8 20:08:09 2026
+NAMESPACE: monitoring
+STATUS: deployed
+REVISION: 3
+DESCRIPTION: Upgrade complete
+NOTES:
+kube-prometheus-stack has been installed. Check its status by running:
+  kubectl --namespace monitoring get pods -l "release=monitoring"
+
+Get Grafana 'admin' user password by running:
+
+  kubectl --namespace monitoring get secrets monitoring-grafana -o jsonpath="{.data.admin-password}" | base64 -d ; echo
+
+Access Grafana local instance:
+
+  export POD_NAME=$(kubectl --namespace monitoring get pod -l "app.kubernetes.io/name=grafana,app.kubernetes.io/instance=monitoring" -oname)
+  kubectl --namespace monitoring port-forward $POD_NAME 3000
+
+Get your grafana admin user password by running:
+
+  kubectl get secret --namespace monitoring -l app.kubernetes.io/component=admin-secret -o jsonpath="{.items[0].data.admin-password}" | base64 --decode ; echo
+
+
+Visit https://github.com/prometheus-operator/kube-prometheus for instructions on how to create & configure Alertmanager and Prometheus instances using the Operator.
+
+$ kubectl get pods -n monitoring
+NAME                                                     READY   STATUS    RESTARTS   AGE
+alertmanager-monitoring-kube-prometheus-alertmanager-0   2/2     Running   0          5m50s
+monitoring-grafana-cbbffd99d-2j2rk                       3/3     Running   0          2m58s
+monitoring-kube-prometheus-operator-56f9f5846c-52tdm     1/1     Running   0          5m56s
+monitoring-kube-state-metrics-75d7ddcc9c-qvkmd           1/1     Running   0          5m56s
+monitoring-prometheus-node-exporter-jj6gt                1/1     Running   0          5m56s
+monitoring-prometheus-node-exporter-sdnlm                1/1     Running   0          5m56s
+prometheus-monitoring-kube-prometheus-prometheus-0       2/2     Running   0          5m50s
+
+=== 2. PICK UP THE SERVICEMONITOR NOW THAT THE CRDS EXIST ===
+
+$ helm upgrade clinicflow /Users/techsaswata/Downloads/devops-scaler/devops-capstone/helm/clinicflow -n clinicflow --reuse-values --wait --timeout 10m
+Release "clinicflow" has been upgraded. Happy Helming!
+NAME: clinicflow
+LAST DEPLOYED: Thu Oct  8 20:08:44 2026
+NAMESPACE: clinicflow
+STATUS: deployed
+REVISION: 4
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+ClinicFlow 1.0.0 — release "clinicflow", revision 4
+
+  Namespace:  clinicflow
+  Backend:    ghcr.io/techsaswata/devops-scaler/clinicflow-backend:sha-fe66d75bff554797612f9b5762dc8783cac6e7fd
+  Frontend:   ghcr.io/techsaswata/devops-scaler/clinicflow-frontend:sha-fe66d75bff554797612f9b5762dc8783cac6e7fd
+  Postgres:   in-cluster (5Gi)
+  Autoscaling: backend 2-6, frontend 2-4
+
+  Reach it through the ingress controller's address:
+
+    kubectl -n ingress-nginx get svc ingress-nginx-controller
+    curl -H 'Host: clinicflow.local' http://<ADDRESS>/
+
+  Without an ingress, port-forward instead:
+
+    kubectl -n clinicflow port-forward svc/clinicflow-clinicflow-frontend 3000:80
+
+=== 3. ALERT RULES ===
+
+$ kubectl apply -f /Users/techsaswata/Downloads/devops-scaler/devops-capstone/monitoring/alert-rules.yaml
+prometheusrule.monitoring.coreos.com/clinicflow-alerts unchanged
+
+$ kubectl get prometheusrule,servicemonitor -n clinicflow
+NAME                                                     AGE
+prometheusrule.monitoring.coreos.com/clinicflow-alerts   4m50s
+
+NAME                                                                 AGE
+servicemonitor.monitoring.coreos.com/clinicflow-clinicflow-backend   4m52s
+
+=== 4. PORT-FORWARD PROMETHEUS ===
+Prometheus API ready after ~2s
+
+=== 5. IS THE APPLICATION ACTUALLY A TARGET? ===
+A ServiceMonitor that EXISTS and a target that is SCRAPED are different
+claims. Only the second one matters, so ask Prometheus directly.
+
+  waiting for the target to be picked up  2 target(s) after ~5s
+$ GET http://localhost:9090/api/v1/targets
+  job=clinicflow-clinicflow-backend      health=up     http://10.40.24.35:8000/metrics
+  job=clinicflow-clinicflow-backend      health=up     http://10.40.8.93:8000/metrics
+
+=== 6. APPLICATION METRICS ===
+$ promql: up{namespace="clinicflow"}
+  clinicflow-clinicflow-backend-7ff9b8d6f9-vc78z     1
+  clinicflow-clinicflow-backend-7ff9b8d6f9-bsrd6     1
+$ promql: sum by (status) (http_requests_total{namespace="clinicflow"})
+  2xx                                                330
+$ promql: sum(rate(http_requests_total{namespace="clinicflow"}[2m]))
+                                                     1.0476190476190474
+
+=== 7. THE COUNTERS MOVE ===
+http_requests_total before: 330
+sending 60 requests through the ingress...
+waiting 20s for the next 15s scrape...
+http_requests_total after:  404
+>> delta +74 -- Prometheus observed real traffic.
+
+=== 8. LATENCY, FROM A HISTOGRAM ===
+$ promql: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace="clinicflow"}[5m])) by (le))
+                                                     0.095
+>> p95 in seconds. A histogram, not an average: averages hide the tail,
+>> and the tail is what users actually notice.
+
+=== 9. CPU AND MEMORY FROM cADVISOR (not from the app) ===
+$ promql: sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="clinicflow",container!=""}[2m]))
+  clinicflow-clinicflow-backend-7ff9b8d6f9-bsrd6     0.0036158561589821766
+  clinicflow-clinicflow-frontend-57fc56f74d-xpz2c    0.000022019164279363778
+  clinicflow-clinicflow-backend-7ff9b8d6f9-vc78z     0.002971449629759654
+  clinicflow-clinicflow-frontend-57fc56f74d-2bm4g    0.000019113530922894022
+  clinicflow-clinicflow-postgres-0                   0.010648839040829316
+$ promql: sum by (pod) (container_memory_working_set_bytes{namespace="clinicflow",container!=""})
+  clinicflow-clinicflow-backend-7ff9b8d6f9-bsrd6     75087872
+  clinicflow-clinicflow-frontend-57fc56f74d-xpz2c    3371008
+  clinicflow-clinicflow-backend-7ff9b8d6f9-vc78z     75427840
+  clinicflow-clinicflow-frontend-57fc56f74d-2bm4g    3375104
+  clinicflow-clinicflow-postgres-0                   36876288
+>> These are reported by the kubelet, so they exist even when the
+>> application is too broken to describe itself.
+
+=== 10. ALERT RULES LOADED ===
+$ GET http://localhost:9090/api/v1/rules
+  group: clinicflow
+    ClinicFlowBackendDown        state=inactive  for=120
+    ClinicFlowHighErrorRate      state=inactive  for=120
+    ClinicFlowSlowRequests       state=inactive  for=300
+    ClinicFlowPodRestarting      state=inactive  for=300
+>> The CRD became real loaded rules, each with a state.
+
+=== 11. GRAFANA ===
+Grafana API ready after ~1s
+
+$ curl -s http://localhost:3001/api/health
+{
+  "database": "ok",
+  "version": "13.2.3",
+  "commit": "90ffed056f0884267356c12a0eeb72a022af53f1"
+}
+
+--- import the ClinicFlow dashboard ---
+  imported: clinicflow-e28094-application  status: success  url: /d/clinicflow-app/clinicflow-e28094-application  version: 1
+
+--- does the datasource actually answer? ---
+  Alertmanager       alertmanager
+  Prometheus         prometheus

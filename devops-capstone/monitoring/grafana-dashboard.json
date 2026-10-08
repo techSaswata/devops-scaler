@@ -1,26 +1,44 @@
 {
-  "title": "ClinicFlow — application",
+  "title": "ClinicFlow \u2014 application",
   "uid": "clinicflow-app",
   "schemaVersion": 39,
   "refresh": "10s",
-  "time": { "from": "now-30m", "to": "now" },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
   "panels": [
     {
       "type": "timeseries",
       "title": "Request rate by status",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
         {
           "expr": "sum by (status) (rate(http_requests_total{job=~\".*clinicflow-backend.*\"}[2m]))",
           "legendFormat": "{{status}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      }
     },
     {
       "type": "timeseries",
       "title": "Latency (p50 / p95 / p99)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=~\".*clinicflow-backend.*\"}[2m])) by (le))",
@@ -35,48 +53,93 @@
           "legendFormat": "p99"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
     },
     {
       "type": "stat",
       "title": "Backend targets up",
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 8 },
-      "targets": [{ "expr": "sum(up{job=~\".*clinicflow-backend.*\"})" }]
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(up{job=~\".*clinicflow-backend.*\"})"
+        }
+      ]
     },
     {
       "type": "stat",
       "title": "5xx rate",
-      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 8 },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total{job=~\".*clinicflow-backend.*\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{job=~\".*clinicflow-backend.*\"}[5m])), 0.001)"
+          "expr": "(sum(rate(http_requests_total{job=~\".*clinicflow-backend.*\",status=~\"5..\"}[5m])) or vector(0)) / clamp_min(sum(rate(http_requests_total{job=~\".*clinicflow-backend.*\"}[5m])), 0.001)"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "description": "`or vector(0)` matters: with no 5xx at all the numerator series does not exist, and the panel renders \"No data\" - which looks like a broken panel rather than a healthy service. This makes zero errors read as 0%."
     },
     {
       "type": "timeseries",
       "title": "CPU by pod (cAdvisor, not the app)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
       "targets": [
         {
           "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"clinicflow\",container!=\"\"}[2m]))",
           "legendFormat": "{{pod}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      }
     },
     {
       "type": "timeseries",
       "title": "Memory working set by pod",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
       "targets": [
         {
           "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"clinicflow\",container!=\"\"})",
           "legendFormat": "{{pod}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
     }
   ]
 }
