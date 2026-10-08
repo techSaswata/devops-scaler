@@ -546,6 +546,56 @@ IMAGE_TAG=sha-<commit> ./scripts/05-troubleshooting.sh
 
 ---
 
+## 13. Tearing it down
+
+```bash
+./scripts/09-destroy.sh
+```
+
+**The order is the whole thing**, and it is the most common way an EKS teardown
+fails.
+
+A `Service` of type `LoadBalancer` is created by *Kubernetes*, not by Terraform.
+Terraform has no idea the AWS load balancer exists. That load balancer holds ENIs
+in the VPC's subnets, so `terraform destroy` spends about twenty minutes trying
+to delete subnets that are still in use, fails with `DependencyViolation`, and —
+worst of all — **leaves the cluster, the NAT gateway and the nodes running** while
+it does. The bill keeps going.
+
+So the script deletes the Kubernetes objects that own AWS resources first, then
+waits for AWS to actually release them, and only then runs Terraform:
+
+1. `helm uninstall` clinicflow, monitoring and ingress-nginx
+2. poll **AWS** (not Kubernetes) until no load balancer remains **in this VPC**
+3. poll until no ENIs remain in the VPC
+4. `terraform destroy`
+5. re-check every resource class from outside Terraform
+
+Step 2 is scoped to this project's VPC rather than to a region-wide count,
+because the account is shared and another project already had a load balancer in
+it. Waiting for the region's total to reach zero would have run the full timeout
+and then proceeded anyway — **a check that cannot pass is worse than no check,
+because it still looks like one.**
+
+Step 5 asks each service directly, phrased so that *success of the command means
+a leftover*:
+
+```
+aws eks list-clusters          → no clinicflow cluster
+aws ec2 describe-instances     → nothing left in the VPC
+aws ec2 describe-nat-gateways  → none (NAT bills hourly even when idle)
+aws ec2 describe-addresses     → none (an unattached EIP is charged for)
+aws ec2 describe-volumes       → no orphaned EBS
+aws logs describe-log-groups   → log group removed
+```
+
+The instance check is scoped to the **VPC**, not to the `Owner` tag, for the
+reason in [What went wrong](#14-what-went-wrong): EKS managed node groups do not
+propagate `default_tags` to the instances they launch, so a tag-scoped check is
+blind to exactly the resources that cost the most.
+
+---
+
 ## 14. What went wrong
 
 Every one of these cost real time, and each is in the repository's history
