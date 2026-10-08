@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "clinicflow.fullname" . }}-config
+  labels: {{- include "clinicflow.labels" . | nindent 4 }}
+data:
+  ENVIRONMENT: {{ .Values.backend.env.ENVIRONMENT | quote }}
+  LOG_LEVEL: {{ .Values.backend.env.LOG_LEVEL | quote }}
+  POSTGRES_DB: {{ .Values.postgres.database | quote }}
+  POSTGRES_USER: {{ .Values.postgres.username | quote }}
+  POSTGRES_HOST: {{ include "clinicflow.fullname" . }}-postgres
+  # Migrations are a Job's responsibility, never the app container's: two
+  # replicas would otherwise race to migrate the same database.
+  RUN_MIGRATIONS: "false"

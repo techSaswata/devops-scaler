@@ -1,0 +1,19 @@
+ClinicFlow {{ .Chart.AppVersion }} — release "{{ .Release.Name }}", revision {{ .Release.Revision }}
+
+  Namespace:  {{ .Release.Namespace }}
+  Backend:    {{ include "clinicflow.backendImage" . }}
+  Frontend:   {{ include "clinicflow.frontendImage" . }}
+  Postgres:   {{ if .Values.postgres.enabled }}in-cluster ({{ .Values.postgres.storage.size }}){{ else }}external{{ end }}
+  Autoscaling: backend {{ .Values.autoscaling.backend.minReplicas }}-{{ .Values.autoscaling.backend.maxReplicas }}, frontend {{ .Values.autoscaling.frontend.minReplicas }}-{{ .Values.autoscaling.frontend.maxReplicas }}
+
+{{- if .Values.ingress.enabled }}
+
+  Reach it through the ingress controller's address:
+
+    kubectl -n ingress-nginx get svc ingress-nginx-controller
+    curl -H 'Host: {{ .Values.ingress.host }}' http://<ADDRESS>/
+{{- end }}
+
+  Without an ingress, port-forward instead:
+
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "clinicflow.fullname" . }}-frontend 3000:80

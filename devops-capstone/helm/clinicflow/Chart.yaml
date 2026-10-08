@@ -1,0 +1,9 @@
+apiVersion: v2
+name: clinicflow
+description: ClinicFlow - clinic appointment management (FastAPI + React + PostgreSQL)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: Saswata Das
+keywords: [clinic, appointments, fastapi, react]

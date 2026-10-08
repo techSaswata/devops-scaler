@@ -1,0 +1,89 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "clinicflow.fullname" . }}-postgres
+  labels: {{- include "clinicflow.labels" . | nindent 4 }}
+spec:
+  # Headless: a StatefulSet's pod needs a stable DNS name, and nothing
+  # load-balances across a single database replica anyway.
+  clusterIP: None
+  selector: {{- include "clinicflow.postgresSelector" . | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "clinicflow.fullname" . }}-postgres
+  labels: {{- include "clinicflow.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "clinicflow.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels: {{- include "clinicflow.postgresSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "clinicflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70          # the alpine postgres image's own uid
+        runAsGroup: 70
+        fsGroup: 70            # so the mounted volume is writable
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          ports: [{ name: postgres, containerPort: 5432 }]
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "clinicflow.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            # The image refuses to initialise into a non-empty mount point, and
+            # a PVC arrives containing lost+found. A subdirectory avoids it.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            # NOT read-only: Postgres writes its socket and lock files outside
+            # the data volume. The honest alternative would be mounting several
+            # emptyDirs to fake it, which buys nothing real.
+            readOnlyRootFilesystem: false
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U {{ .Values.postgres.username }} -d {{ .Values.postgres.database }}"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U {{ .Values.postgres.username }} -d {{ .Values.postgres.database }}"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources: {{- toYaml .Values.postgres.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- if .Values.postgres.storage.storageClass }}
+        storageClassName: {{ .Values.postgres.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage.size }}
+{{- end }}

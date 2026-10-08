@@ -1,0 +1,68 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # The revision is in the name because a Helm hook Job is immutable: reusing
+  # one name would make the second upgrade fail with "field is immutable".
+  name: {{ include "clinicflow.fullname" . }}-migrate-{{ .Release.Revision }}
+  labels: {{- include "clinicflow.labels" . | nindent 4 }}
+  annotations:
+    # pre-install AND pre-upgrade, with a weight that puts it after the
+    # database exists. Helm waits for this Job to succeed before touching the
+    # Deployments, so the new code never starts against an un-migrated schema.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "clinicflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      initContainers:
+        # Postgres can take a while to come up on a cold install, and Alembic
+        # fails immediately rather than retrying. Wait for a real connection
+        # instead of sleeping and hoping.
+        - name: wait-for-postgres
+          image: {{ .Values.postgres.image }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ include "clinicflow.fullname" . }}-postgres -U {{ .Values.postgres.username }}; do
+                echo "waiting for postgres..."; sleep 2
+              done
+              echo "postgres is accepting connections"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 70
+            capabilities: { drop: ["ALL"] }
+      containers:
+        - name: alembic
+          image: {{ include "clinicflow.backendImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["alembic", "upgrade", "head"]
+          securityContext: {{- include "clinicflow.containerSecurity" . | nindent 12 }}
+          envFrom:
+            - configMapRef: { name: {{ include "clinicflow.fullname" . }}-config }
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "clinicflow.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(POSTGRES_DB)
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+{{- end }}

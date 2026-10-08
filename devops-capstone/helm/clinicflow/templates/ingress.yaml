@@ -1,0 +1,52 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "clinicflow.fullname" . }}
+  labels: {{- include "clinicflow.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    {{- with .Values.ingress.annotations }}{{- toYaml . | nindent 4 }}{{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          # ORDER MATTERS. ingress-nginx matches the most specific prefix, but
+          # writing /api first keeps the intent obvious to a human reading it:
+          # /api/... reaches FastAPI, everything else reaches the SPA. If / came
+          # first and matched greedily, every API call would be served the
+          # index.html shell and the dashboard would silently show nothing.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "clinicflow.fullname" . }}-backend
+                port: { number: 8000 }
+          # The backend's own docs and probes, useful for the demo.
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "clinicflow.fullname" . }}-backend
+                port: { number: 8000 }
+          - path: /openapi.json
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "clinicflow.fullname" . }}-backend
+                port: { number: 8000 }
+          - path: /metrics
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "clinicflow.fullname" . }}-backend
+                port: { number: 8000 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "clinicflow.fullname" . }}-frontend
+                port: { number: 80 }
+{{- end }}

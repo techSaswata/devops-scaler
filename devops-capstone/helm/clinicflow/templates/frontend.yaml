@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "clinicflow.fullname" . }}-frontend
+  labels:
+    {{- include "clinicflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  type: ClusterIP
+  selector: {{- include "clinicflow.frontendSelector" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "clinicflow.fullname" . }}-frontend
+  labels:
+    {{- include "clinicflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  {{- if not .Values.autoscaling.frontend.enabled }}
+  replicas: {{ .Values.frontend.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "clinicflow.frontendSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "clinicflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: frontend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile: { type: RuntimeDefault }
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {{- include "clinicflow.frontendSelector" . | nindent 20 }}
+      volumes:
+        # nginx writes its pid and its temp bodies at runtime, so a read-only
+        # root filesystem needs these mounted rather than disabled.
+        - { name: cache,  emptyDir: {} }
+        - { name: run,    emptyDir: {} }
+        - { name: confd,  emptyDir: {} }
+      containers:
+        - name: frontend
+          image: {{ include "clinicflow.frontendImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{ name: http, containerPort: {{ .Values.frontend.port }} }]
+          securityContext: {{- include "clinicflow.containerSecurity" . | nindent 12 }}
+          env:
+            # envsubst turns the shipped template into a config pointing at the
+            # backend Service. The browser only ever sees one origin.
+            - name: BACKEND_HOST
+              value: {{ include "clinicflow.fullname" . }}-backend
+            - name: BACKEND_PORT
+              value: "8000"
+          volumeMounts:
+            - { name: cache, mountPath: /var/cache/nginx }
+            - { name: run,   mountPath: /tmp }
+            - { name: confd, mountPath: /etc/nginx/conf.d }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources: {{- toYaml .Values.frontend.resources | nindent 12 }}

@@ -1,0 +1,92 @@
+# ---------------------------------------------------------------- global ----
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: ghcr.io
+  repository: techsaswata/devops-scaler
+  pullPolicy: IfNotPresent
+
+# ---------------------------------------------------------------- backend ----
+backend:
+  image:
+    name: clinicflow-backend
+    tag: ""              # defaults to .Chart.AppVersion; CI overrides with sha-<commit>
+  replicaCount: 2        # rubric asks for >=2, and it is also the smallest
+                         # number that survives a single node going away
+  port: 8000
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+  env:
+    ENVIRONMENT: production
+    LOG_LEVEL: INFO
+
+# --------------------------------------------------------------- frontend ----
+frontend:
+  image:
+    name: clinicflow-frontend
+    tag: ""
+  replicaCount: 2
+  port: 8080             # nginx-unprivileged cannot bind 80 without root
+  resources:
+    requests: { cpu: 50m,  memory: 64Mi }
+    limits:   { cpu: 200m, memory: 192Mi }
+
+# --------------------------------------------------------------- postgres ----
+# In-cluster Postgres, which is right for a course project and wrong for
+# production: a single StatefulSet replica is a single point of failure with no
+# automated backups. A real deployment would point DATABASE_URL at RDS and
+# delete this section -- which is why the connection string is built from
+# values rather than hard-coded anywhere.
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  database: clinicflow
+  username: clinic
+  # The password is NOT here. It is generated on first install and kept in a
+  # Secret -- see templates/secret.yaml.
+  existingSecret: ""     # set this to bring your own Secret instead
+  storage:
+    size: 5Gi
+    storageClass: ""     # "" = the cluster's default (gp2 on EKS)
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 1Gi }
+
+# ---------------------------------------------------------------- ingress ----
+ingress:
+  enabled: true
+  className: nginx
+  host: clinicflow.local
+  annotations: {}
+
+# ------------------------------------------------------------- autoscaling ----
+autoscaling:
+  backend:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  frontend:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 80
+
+# -------------------------------------------------------------- monitoring ----
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+    # Must match the Prometheus release's serviceMonitorSelector.
+    labels:
+      release: monitoring
+
+# -------------------------------------------------------------- migrations ----
+migrations:
+  # Alembic runs ONCE, in a pre-upgrade/pre-install Job -- never in the app
+  # containers. With replicaCount 2 the containers would race each other to
+  # migrate the same database on every rollout.
+  enabled: true
+  backoffLimit: 3

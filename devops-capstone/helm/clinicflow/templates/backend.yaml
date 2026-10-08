@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "clinicflow.fullname" . }}-backend
+  labels:
+    {{- include "clinicflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  selector: {{- include "clinicflow.backendSelector" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http      # by NAME, so the Service follows the container
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "clinicflow.fullname" . }}-backend
+  labels:
+    {{- include "clinicflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  {{- if not .Values.autoscaling.backend.enabled }}
+  replicas: {{ .Values.backend.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "clinicflow.backendSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "clinicflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: backend
+      annotations:
+        # Roll the pods when configuration changes. Without this a values-only
+        # change updates the ConfigMap and leaves the running pods on the old
+        # values, because the Deployment's own spec never changed.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      # Keep the two replicas off one node where possible, so losing a node
+      # does not take the whole API with it. "Preferred", not "required": on a
+      # single-node cluster a hard rule would leave the second pod Pending
+      # forever.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {{- include "clinicflow.backendSelector" . | nindent 20 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: backend
+          image: {{ include "clinicflow.backendImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{ name: http, containerPort: {{ .Values.backend.port }} }]
+          securityContext: {{- include "clinicflow.containerSecurity" . | nindent 12 }}
+          envFrom:
+            - configMapRef: { name: {{ include "clinicflow.fullname" . }}-config }
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "clinicflow.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            # Assembled here from the ConfigMap and the Secret, so the password
+            # never appears in a ConfigMap, a values file or this chart.
+            - name: DATABASE_URL
+              value: postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(POSTGRES_DB)
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+          # Startup first and alone: it absorbs a slow cold start once, so the
+          # liveness probe can stay strict instead of being generous forever.
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            httpGet: { path: /ready, port: http }   # checks Postgres
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /health, port: http }  # no I/O; a kill cannot fix a DB outage
+            periodSeconds: 15
+            failureThreshold: 3
+          resources: {{- toYaml .Values.backend.resources | nindent 12 }}
