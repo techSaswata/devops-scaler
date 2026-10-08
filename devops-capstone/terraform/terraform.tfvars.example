@@ -1,0 +1,22 @@
+# Copy to terraform.tfvars and adjust. terraform.tfvars is gitignored.
+#
+# There are NO credentials in this file and there must never be any. Terraform
+# reads AWS credentials from the environment, ~/.aws/credentials or an instance
+# role -- committing an access key here would hand the account to anyone who can
+# read the repository.
+
+aws_region   = "ap-south-1"
+project_name = "clinicflow"
+owner_tag    = "24BCS10248"
+
+vpc_cidr        = "10.40.0.0/16"
+cluster_version = "1.31"
+
+node_instance_type = "t3.medium"
+node_desired_size  = 2
+node_min_size      = 2
+node_max_size      = 4
+
+# true  = one NAT gateway  (~$0.045/hr) - fine for a short-lived demo
+# false = one NAT per AZ   (~$0.09/hr)  - production shape
+single_nat_gateway = true

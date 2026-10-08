@@ -1,0 +1,9 @@
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+tfplan
+crash.log
+# Real variable files may carry account-specific detail; only the example is committed.
+*.tfvars
+!*.tfvars.example
