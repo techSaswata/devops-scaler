@@ -339,6 +339,22 @@ The capstone: one application through every stage of the course.
 
 ---
 
+### Separately: the Final Capstone → [`devops-capstone/`](devops-capstone/)
+
+The twenty modules above are the session homework, submitted through the
+per-session form. The **DevOps Final Capstone** is a different deliverable with
+its own brief, its own rubric and its own submission form, and it lives in
+[`devops-capstone/`](devops-capstone/).
+
+It is **ClinicFlow** — a clinic appointment manager — because the capstone
+requires the application domain to be the student's own rather than a copy of
+the reference project. FastAPI + React + PostgreSQL, deployed to a real **EKS**
+cluster provisioned by Terraform, with its own pipeline, Trivy gate, Helm chart,
+Prometheus/Grafana stack and troubleshooting lab. See its
+[README](devops-capstone/README.md).
+
+---
+
 ## 3. Test environment
 
 | Component | Version |
