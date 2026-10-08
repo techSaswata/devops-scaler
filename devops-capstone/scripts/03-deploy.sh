@@ -32,11 +32,11 @@ wait200(){
   echo " GAVE UP after ~450s (last status $code)"; return 1
 }
 
-hr "0. THE CLUSTER"
+hr "1. THE CLUSTER"
 runfull "kubectl config current-context"
 runfull "kubectl get nodes -o wide"
 
-hr "1. INGRESS CONTROLLER"
+hr "2. INGRESS CONTROLLER"
 # On EKS this creates a real AWS load balancer, which is why 09-destroy.sh has
 # to delete it BEFORE terraform runs -- Terraform does not know it exists.
 run "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx 2>&1 | tail -1"
@@ -58,7 +58,23 @@ for i in $(seq 1 60); do
 done
 echo "LB=$LB"
 
-hr "2. NAMESPACE AND STORAGE CLASS"
+hr "3. METRICS-SERVER"
+# EKS does not ship metrics-server, and nothing says so. Without it the HPA
+# cannot read CPU at all and reports, on a loop:
+#   failed to get cpu utilization: unable to fetch metrics from resource metrics
+#   API: the server could not find the requested resource (get pods.metrics.k8s.io)
+# The HPA object exists, looks configured, and silently never scales.
+run "kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+runfull "kubectl -n kube-system rollout status deployment/metrics-server --timeout=5m"
+echo
+echo "--- it answers, rather than merely existing ---"
+for i in $(seq 1 30); do
+  kubectl top nodes >/dev/null 2>&1 && { echo "  metrics API answering after ~$((i*5))s"; break; }
+  sleep 5
+done
+run "kubectl top nodes"
+
+hr "4. NAMESPACE AND STORAGE CLASS"
 runfull "kubectl apply -f $D/k8s/namespace.yaml"
 # EKS ships no DEFAULT StorageClass, so a PVC that does not name one binds to
 # nothing. This adds a gp3 class backed by the CSI driver and marks it default.
@@ -67,7 +83,7 @@ runfull "kubectl get storageclass"
 runfull "kubectl get ns $NS --show-labels"
 echo ">> Pod Security Admission is enforced at 'restricted' on this namespace."
 
-hr "3. HELM INSTALL"
+hr "5. HELM INSTALL"
 run "helm lint $D/helm/clinicflow"
 echo
 echo "deploying image tag: $TAG"
@@ -78,12 +94,12 @@ runfull "helm upgrade --install clinicflow $D/helm/clinicflow \
   --set ingress.host=clinicflow.local \
   --wait --timeout 12m"
 
-hr "4. WHAT HELM CREATED"
+hr "6. WHAT HELM CREATED"
 runfull "helm list -n $NS"
 run "kubectl get all -n $NS"
 run "kubectl get pvc,ingress,secret,configmap -n $NS"
 
-hr "5. ALL PODS RUNNING"
+hr "7. ALL PODS RUNNING"
 runfull "kubectl get pods -n $NS -o wide"
 echo
 echo "--- replica counts: the rubric asks for at least 2 of each ---"
@@ -96,7 +112,7 @@ echo
 echo "--- the anti-affinity actually spread them across nodes ---"
 kubectl get pods -n $NS -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName' --no-headers | sort -k2
 
-hr "6. THE MIGRATION RAN AS A JOB, NOT IN THE APP CONTAINERS"
+hr "8. THE MIGRATION RAN AS A JOB, NOT IN THE APP CONTAINERS"
 runfull "kubectl get jobs -n $NS"
 run "kubectl logs -n $NS job/\$(kubectl get jobs -n $NS -o jsonpath='{.items[0].metadata.name}') --tail=12 --all-containers 2>&1 || true"
 echo "\$ alembic version in the live database"
@@ -105,13 +121,13 @@ kubectl exec -n $NS "$PG" -- psql -U clinic -d clinicflow -tAc 'SELECT version_n
 echo ">> With two backend replicas, running Alembic in the app containers would"
 echo ">> mean two pods racing to migrate the same database on every rollout."
 
-hr "7. SERVICES AND ENDPOINTS"
+hr "9. SERVICES AND ENDPOINTS"
 runfull "kubectl get svc -n $NS"
 echo
 echo "--- a Service with no endpoints is the silent failure; check them ---"
 kubectl get endpointslice -n $NS -o custom-columns='NAME:.metadata.name,ADDRESSES:.endpoints[*].addresses,PORTS:.ports[*].port' --no-headers 2>&1 | head
 
-hr "8. THE APPLICATION THROUGH THE INGRESS"
+hr "10. THE APPLICATION THROUGH THE INGRESS"
 runfull "kubectl get ingress -n $NS"
 wait200 "http://$LB/" "clinicflow.local"
 echo
@@ -127,7 +143,7 @@ import urllib.request
 for p in ('/health','/ready'):
     print(' ',p, urllib.request.urlopen('http://localhost:8000'+p).read().decode())" 2>&1 | grep -v Defaulted
 
-hr "9. SEED AND READ BACK THROUGH THE INGRESS"
+hr "11. SEED AND READ BACK THROUGH THE INGRESS"
 API="http://$LB/api" HOSTHDR=clinicflow.local bash -c '
 post(){ curl -s -X POST "$API/$1" -H "Host: $HOSTHDR" -H "Content-Type: application/json" -d "$2"; }
 for d in "{\"name\":\"Dr Aparna Rao\",\"specialty\":\"Cardiology\",\"room\":\"C-12\"}" \
@@ -155,13 +171,13 @@ echo
 echo "\$ GET /api/appointments/stats"
 curl -s --max-time 15 -H 'Host: clinicflow.local' "http://$LB/api/appointments/stats" | python3 -m json.tool
 
-hr "10. HPA"
+hr "12. HPA"
 runfull "kubectl get hpa -n $NS"
 echo ">> minReplicas 2 for both, so the HPA holds the deployment at two even"
 echo ">> at idle. The Deployments deliberately omit .spec.replicas when"
 echo ">> autoscaling is on, so Helm and the HPA cannot fight over the number."
 
-hr "11. SECURITY CONTEXT, VERIFIED FROM INSIDE THE POD"
+hr "13. SECURITY CONTEXT, VERIFIED FROM INSIDE THE POD"
 runfull "kubectl get pod -n $NS -l app.kubernetes.io/component=backend -o jsonpath='runAsNonRoot={.items[0].spec.securityContext.runAsNonRoot}  uid={.items[0].spec.securityContext.runAsUser}  readOnlyRootFS={.items[0].spec.containers[0].securityContext.readOnlyRootFilesystem}  caps={.items[0].spec.containers[0].securityContext.capabilities.drop}{\"\\n\"}'"
 run "kubectl exec -n $NS deploy/clinicflow-clinicflow-backend -- id 2>&1 | grep -v Defaulted"
 echo "\$ kubectl exec ... -- touch /forbidden"
