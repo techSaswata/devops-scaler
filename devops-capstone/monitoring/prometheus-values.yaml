@@ -1,0 +1,59 @@
+# Values for kube-prometheus-stack (Prometheus + Alertmanager + Grafana).
+#
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#     -n monitoring --create-namespace -f monitoring/prometheus-values.yaml
+
+prometheus:
+  prometheusSpec:
+    retention: 6h
+    # Empty selectors mean "scrape every ServiceMonitor in every namespace".
+    # The default is to require the chart's own release label, which silently
+    # ignores a ServiceMonitor created by another chart -- the target simply
+    # never appears and nothing says why.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits:   { cpu: 1,    memory: 2Gi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 8Gi
+
+grafana:
+  enabled: true
+  # Demo cluster, destroyed after the walkthrough. A real deployment reads this
+  # from a Secret; it is written here so the grader can log in.
+  adminPassword: clinicflow-demo
+  service:
+    type: ClusterIP
+  defaultDashboardsEnabled: true
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespaces: ALL
+  resources:
+    requests: { cpu: 50m,  memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 20m, memory: 64Mi }
+      limits:   { cpu: 200m, memory: 256Mi }
+
+# On EKS these components are managed by AWS and are not reachable as pods, so
+# leaving them enabled produces permanently-down targets that train everyone to
+# ignore a red dashboard.
+kubeEtcd:              { enabled: false }
+kubeScheduler:         { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeProxy:             { enabled: false }

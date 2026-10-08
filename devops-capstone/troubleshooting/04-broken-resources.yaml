@@ -1,0 +1,44 @@
+# FAULT 4 — the pod requests more CPU than any node has.
+#
+# Symptom:  STATUS Pending. Not running-and-broken: never placed on a node.
+# Find it:  kubectl describe pod -n clinicflow-broken -l fault=resources
+#           -> FailedScheduling: 0/N nodes are available: Insufficient cpu
+#           then: kubectl get nodes -o custom-columns=NAME:.metadata.name,CPU:.status.allocatable.cpu
+# Why:      a request is a SCHEDULING CONTRACT, not a limit. The scheduler will
+#           not overcommit it, so if no node can satisfy the request the pod
+#           waits indefinitely rather than starting and being throttled. A
+#           t3.medium has 2 vCPU, so 16 is unsatisfiable on this cluster.
+# Fix:      requests.cpu: 100m
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broken-resources
+  namespace: clinicflow-broken
+  labels: { fault: resources }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: broken-resources }
+  template:
+    metadata:
+      labels: { app: broken-resources, fault: resources }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: backend
+          image: IMAGE_PLACEHOLDER
+          ports: [{ containerPort: 8000, name: http }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests:
+              cpu: "16"            # <-- no node in this cluster has 16 vCPU
+              memory: 128Mi
+            limits:
+              cpu: "16"
+              memory: 256Mi

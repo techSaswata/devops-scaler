@@ -1,0 +1,38 @@
+# FAULT 1 — the image tag does not exist.
+#
+# Symptom:  ErrImagePull, then ImagePullBackOff.
+# Find it:  kubectl describe pod -n clinicflow-broken -l fault=image
+#           -> Failed to pull image "...:v9.9.9-does-not-exist"
+# Why:      the tag was never built and pushed. Note the registry's error says
+#           the repository may require authorization rather than "no such tag" --
+#           a registry will not confirm the absence of a possibly-private repo,
+#           so a typo and a permissions problem look identical from outside.
+# Fix:      set the tag to one that exists (the SHA tag from a green pipeline).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broken-image
+  namespace: clinicflow-broken
+  labels: { fault: image }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: broken-image }
+  template:
+    metadata:
+      labels: { app: broken-image, fault: image }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: backend
+          image: ghcr.io/techsaswata/devops-scaler/clinicflow-backend:v9.9.9-does-not-exist
+          ports: [{ containerPort: 8000, name: http }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }

@@ -1,0 +1,51 @@
+# Alerts for ClinicFlow. Applied after the stack is installed:
+#   kubectl apply -f monitoring/alert-rules.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: clinicflow-alerts
+  namespace: clinicflow
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: clinicflow
+      rules:
+        - alert: ClinicFlowBackendDown
+          # `up` is synthetic: Prometheus writes 1 when the scrape succeeded.
+          # It still works when the application is too broken to describe
+          # itself, which is exactly when it matters.
+          expr: up{job=~".*clinicflow-backend.*"} == 0
+          for: 2m
+          labels: { severity: critical }
+          annotations:
+            summary: "ClinicFlow backend is not scrapeable"
+            description: "No successful scrape for 2 minutes."
+
+        - alert: ClinicFlowHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{job=~".*clinicflow-backend.*",status=~"5.."}[5m]))
+              / sum(rate(http_requests_total{job=~".*clinicflow-backend.*"}[5m])) > 0.05
+          # `for` is the difference between an alert and a twitch: the condition
+          # must hold for 2 minutes, so a single bad scrape does not page anyone.
+          for: 2m
+          labels: { severity: warning }
+          annotations:
+            summary: "5xx rate above 5%"
+
+        - alert: ClinicFlowSlowRequests
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{job=~".*clinicflow-backend.*"}[5m])) by (le)
+            ) > 1
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "p95 latency above 1s"
+
+        - alert: ClinicFlowPodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="clinicflow"}[15m]) > 3
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "A ClinicFlow pod is restarting repeatedly"

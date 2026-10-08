@@ -129,8 +129,12 @@ jobs:
           push: false
           load: true
           tags: clinicflow-${{ matrix.component }}:scan
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Scoped per component. Both matrix jobs run concurrently, and with a
+          # shared scope they write the same cache manifest at the same time --
+          # which produced "error writing layer blob: not_found" on a build that
+          # had nothing wrong with it.
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
       - name: Trivy — fail on HIGH or CRITICAL
         uses: aquasecurity/trivy-action@v0.36.0
@@ -188,7 +192,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+          cache-from: type=gha,scope=${{ matrix.component }}
 
   # ----------------------------------------------------------------- deploy ---
   deploy:

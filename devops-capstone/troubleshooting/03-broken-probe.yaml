@@ -1,0 +1,55 @@
+# FAULT 3 — the readiness probe asks for a path the app does not serve.
+#
+# Symptom:  STATUS Running, READY 0/1, forever. The pod never joins the
+#           Service endpoints, so the app is invisible despite being healthy.
+# Find it:  kubectl describe pod -n clinicflow-broken -l fault=probe
+#           -> Readiness probe failed: HTTP probe failed with statuscode: 404
+# Why:      /healthz is Go-ecosystem convention; this app serves /health and
+#           /ready. The probe is doing exactly what it was told. Prove the app
+#           is fine by calling the real path from inside the pod:
+#             kubectl exec <pod> -n clinicflow-broken -- \
+#               python -c "import urllib.request;print(urllib.request.urlopen('http://localhost:8000/health').read())"
+# Fix:      path: /ready
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broken-probe
+  namespace: clinicflow-broken
+  labels: { fault: probe }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: broken-probe }
+  template:
+    metadata:
+      labels: { app: broken-probe, fault: probe }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: backend
+          image: IMAGE_PLACEHOLDER
+          ports: [{ containerPort: 8000, name: http }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+          env:
+            # No database needed to answer /health, which is the point of
+            # /health not touching the database.
+            - { name: DATABASE_URL, value: "postgresql+psycopg://x:x@localhost:5432/x" }
+          readinessProbe:
+            httpGet:
+              path: /healthz        # <-- this app serves /health and /ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }

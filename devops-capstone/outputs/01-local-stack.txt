@@ -1,0 +1,181 @@
+
+=== 1. THE APPLICATION'S TESTS ===
+
+$ /private/tmp/claude-501/-Users-techsaswata-Downloads-devops-scaler/f093fc6e-0617-4fda-a13c-38eb7d93c9dd/scratchpad/cfvenv/bin/python -m pytest -q 2>&1 | tail -22
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-8.3.4, pluggy-1.6.0
+rootdir: /Users/techsaswata/Downloads/devops-scaler/devops-capstone/backend
+configfile: pytest.ini
+testpaths: tests
+plugins: cov-6.0.0, anyio-4.15.1
+collected 16 items
+
+tests/test_appointments.py ........                                      [ 50%]
+tests/test_meta.py ....                                                  [ 75%]
+tests/test_people.py ....                                                [100%]
+
+=============================== warnings summary ===============================
+../../../../../../private/tmp/claude-501/-Users-techsaswata-Downloads-devops-scaler/f093fc6e-0617-4fda-a13c-38eb7d93c9dd/scratchpad/cfvenv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /private/tmp/claude-501/-Users-techsaswata-Downloads-devops-scaler/f093fc6e-0617-4fda-a13c-38eb7d93c9dd/scratchpad/cfvenv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 16 passed, 1 warning in 0.27s =========================
+
+=== 2. WHAT THE TESTS ACTUALLY COVER ===
+
+$ grep -h '^def test' tests/*.py | sed 's/def //; s/(.*//' | nl
+     1	test_full_crud_cycle
+     2	test_double_booking_a_doctor_is_409
+     3	test_cancelling_frees_the_slot_but_keeps_the_record
+     4	test_naive_datetime_is_rejected
+     5	test_appointment_for_unknown_doctor_is_404
+     6	test_filter_by_status
+     7	test_stats_are_computed
+     8	test_stats_on_an_empty_clinic_do_not_divide_by_zero
+     9	test_health_is_cheap_and_always_ok
+    10	test_ready_reports_the_database
+    11	test_metrics_is_prometheus_format
+    12	test_root_reports_identity
+    13	test_create_and_list_doctor
+    14	test_create_patient_and_fetch_by_id
+    15	test_patient_rejects_short_name
+    16	test_missing_patient_is_404
+>> 16 cases over the probes, doctors/patients, and the full appointment
+>> lifecycle. The suite runs on SQLite so it needs no database service in
+>> CI -- and the partial index is declared for BOTH engines so the
+>> double-booking conflict is genuinely exercised, not skipped.
+
+=== 3. IMAGES: MULTI-STAGE AND NON-ROOT ===
+
+$ docker compose images
+CONTAINER               REPOSITORY            TAG                 PLATFORM            IMAGE ID            SIZE                CREATED
+clinicflow-backend-1    clinicflow-backend    latest              linux/arm64         7e6b67c691cb        88.7MB              2 minutes ago
+clinicflow-frontend-1   clinicflow-frontend   latest              linux/arm64         87a0f9f58ed1        26.7MB              3 minutes ago
+clinicflow-postgres-1   postgres              16-alpine           linux/arm64/v8      721873c34ceb        114MB               15 minutes ago
+
+--- the runtime stage carries no build toolchain ---
+$ docker compose exec backend sh -c 'command -v gcc || echo "no compiler in the runtime image"'
+no compiler in the runtime image
+$ docker compose exec frontend sh -c 'command -v node || echo "no node in the runtime image"'
+no node in the runtime image
+
+--- neither runs as root ---
+  backend   uid=10001(appuser) gid=10001(appuser) groups=10001(appuser)
+  frontend  uid=101(nginx) gid=101(nginx) groups=101(nginx)
+
+--- and the read-only root filesystem is real, not asserted ---
+$ docker compose exec backend touch /forbidden
+touch: cannot touch '/forbidden': Permission denied
+
+=== 4. THE STACK IS UP ===
+
+$ docker compose ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}'
+SERVICE    STATUS                    PORTS
+backend    Up 2 minutes (healthy)    0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
+frontend   Up 3 minutes (healthy)    0.0.0.0:3000->8080/tcp, [::]:3000->8080/tcp
+postgres   Up 14 minutes (healthy)   0.0.0.0:55432->5432/tcp, [::]:55432->5432/tcp
+>> The backend waits on postgres's HEALTH check, not merely its start:
+>> Postgres accepts TCP for a second or two before it accepts queries.
+
+=== 5. THE DATABASE SCHEMA CAME FROM A MIGRATION ===
+
+$ docker compose exec -T postgres psql -U clinic -d clinicflow -c '\dt'
+             List of relations
+ Schema |      Name       | Type  | Owner  
+--------+-----------------+-------+--------
+ public | alembic_version | table | clinic
+ public | appointments    | table | clinic
+ public | doctors         | table | clinic
+ public | patients        | table | clinic
+(4 rows)
+
+
+$ docker compose exec -T postgres psql -U clinic -d clinicflow -c 'SELECT version_num FROM alembic_version'
+ version_num  
+--------------
+ 262e4b35c25c
+(1 row)
+
+
+--- the booking rule is enforced by the DATABASE, not by a handler ---
+Indexes:
+    "appointments_pkey" PRIMARY KEY, btree (id)
+    "ix_appointments_doctor_id" btree (doctor_id)
+    "ix_appointments_patient_id" btree (patient_id)
+    "ix_appointments_scheduled_at" btree (scheduled_at)
+    "ix_appointments_status" btree (status)
+    "uq_doctor_slot_live" UNIQUE, btree (doctor_id, scheduled_at) WHERE status = ANY (ARRAY['scheduled'::appointment_status, 'completed'::appointment_status])
+Foreign-key constraints:
+
+=== 6. THE API ===
+
+$ curl -s http://localhost:3000/api/../ -o /dev/null -w 'GET /        HTTP %{http_code}\n'
+GET /        HTTP 200
+$ GET /health
+{"status":"healthy"}
+$ GET /ready    (this one DOES query Postgres)
+{"status":"ready","database":"reachable"}
+
+$ GET /api/appointments/stats
+{
+    "total": 12,
+    "scheduled": 8,
+    "completed": 2,
+    "cancelled": 1,
+    "no_show": 1,
+    "upcoming_7_days": 8,
+    "doctors": 4,
+    "patients": 5,
+    "completion_rate": 66.7
+}
+
+$ GET /api/appointments  (first two)
+  10  2026-10-04T12:00  Joseph Thomas    Dr Imran Qureshi     cancelled
+   9  2026-10-05T12:00  Fatima Sheikh    Dr Vikram Sethi      no_show
+
+=== 7. THE BOOKING CONFLICT IS A RACE, SO THE DATABASE SETTLES IT ===
+slot: 2026-11-07T13:02:32+00:00
+
+$ POST /api/appointments   doctor 1  (first booking)
+  HTTP 201
+$ POST /api/appointments   doctor 1, SAME instant, different patient
+  {"detail":"that doctor already has an appointment at that time"}
+  HTTP 409
+$ POST /api/appointments   DIFFERENT doctor, same instant (must succeed)
+  HTTP 201
+$ POST /api/appointments   naive datetime, no timezone offset
+  HTTP 422
+
+>> 409 from a unique index, not from a pre-flight SELECT. Two concurrent
+>> bookings can both pass an 'is it free?' check before either inserts, so
+>> only the database can decide. 422 for the naive datetime: a clinic that
+>> books across a DST boundary should not be guessing the timezone.
+
+=== 8. SAME ORIGIN: THE BROWSER NEVER SEES THE BACKEND ===
+The bundle contains no backend hostname. nginx proxies /api, so the same
+image works in compose and in Kubernetes without a rebuild.
+
+$ grep -c 'localhost:8000' /Users/techsaswata/Downloads/devops-scaler/devops-capstone/frontend/dist/assets/*.js || echo '0 occurrences of a backend URL in the built bundle'
+0
+0 occurrences of a backend URL in the built bundle
+$ curl -s localhost:3000/api/appointments/stats   (through nginx)
+{"total":14,"scheduled":10,"completed":2,"cancelled":1,"no_show":1,"upcoming_7_days":8,"doctors":4,"patients":5,"completion_rate":66.7}
+$ curl -s -o /dev/null -w '%{http_code}' localhost:3000/healthz   (nginx's own probe)
+  HTTP 200
+
+=== 9. PROMETHEUS METRICS ===
+$ curl -s localhost:8000/metrics | head
+# HELP python_gc_objects_collected_total Objects collected during gc
+# TYPE python_gc_objects_collected_total counter
+# HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC
+# TYPE python_gc_objects_uncollectable_total counter
+# HELP python_gc_collections_total Number of times this generation was collected
+# TYPE python_gc_collections_total counter
+# HELP python_info Python platform information
+# TYPE python_info gauge
+# HELP process_virtual_memory_bytes Virtual memory size in bytes.
+# TYPE process_virtual_memory_bytes gauge
+
+metric families exposed:
+20
