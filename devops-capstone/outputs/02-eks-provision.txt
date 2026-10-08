@@ -1,0 +1,93 @@
+
+=== 0. WHO AM I, AND WHERE ===
+
+$ aws sts get-caller-identity
+{
+    "UserId": "AIDAQUNMUZLT5TI45EOIN",
+    "Account": "043848616679",
+    "Arn": "arn:aws:iam::043848616679:user/parmita-lms"
+}
+>> A shared account, hence the Owner tag on every resource and the
+>> verified teardown in scripts/09-destroy.sh.
+
+=== 1. INIT ===
+
+$ terraform init -no-color -upgrade
+Initializing provider plugins...
+- Finding hashicorp/aws versions matching "~> 5.0"...
+- Finding hashicorp/tls versions matching "~> 4.0"...
+- Using previously-installed hashicorp/aws v5.100.0
+- Using previously-installed hashicorp/tls v4.4.1
+
+Terraform has been successfully initialized!
+
+You may now begin working with Terraform. Try running "terraform plan" to see
+any changes that are required for your infrastructure. All Terraform commands
+should now work.
+
+If you ever set or change modules or backend configuration for Terraform,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.
+
+=== 2. FMT AND VALIDATE ===
+
+$ terraform fmt -check -recursive -no-color
+
+>> No output means every file is already canonically formatted.
+
+$ terraform validate -no-color
+Success! The configuration is valid.
+
+=== 3. PLAN ===
+
+$ terraform plan -no-color -out=tfplan
+      + enable_dns_hostnames                 = true
+      + enable_dns_support                   = true
+      + enable_network_address_usage_metrics = (known after apply)
+      + id                                   = (known after apply)
+      + instance_tenancy                     = "default"
+      + ipv6_association_id                  = (known after apply)
+      + ipv6_cidr_block                      = (known after apply)
+      + ipv6_cidr_block_network_border_group = (known after apply)
+      + main_route_table_id                  = (known after apply)
+      + owner_id                             = (known after apply)
+      + tags                                 = {
+          + "Name" = "clinicflow-vpc"
+        }
+      + tags_all                             = {
+          + "ManagedBy" = "terraform"
+          + "Name"      = "clinicflow-vpc"
+          + "Owner"     = "24BCS10248"
+          + "Project"   = "clinicflow"
+        }
+    }
+
+Plan: 30 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + cluster_endpoint   = (known after apply)
+  + cluster_name       = "clinicflow"
+  + cluster_version    = "1.31"
+  + configure_kubectl  = "aws eks update-kubeconfig --region ap-south-1 --name clinicflow"
+  + node_group_status  = (known after apply)
+  + private_subnet_ids = [
+      + (known after apply),
+      + (known after apply),
+    ]
+  + public_subnet_ids  = [
+      + (known after apply),
+      + (known after apply),
+    ]
+  + vpc_id             = (known after apply)
+
+─────────────────────────────────────────────────────────────────────────────
+
+Saved the plan to: tfplan
+
+To perform exactly these actions, run the following command to apply:
+    terraform apply "tfplan"
+
+=== 4. APPLY ===
+EKS control planes take 8-12 minutes, and the node group another 3-5.
+
+$ terraform apply -no-color -auto-approve tfplan

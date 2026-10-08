@@ -43,15 +43,35 @@ print('  (none)' if n==0 else f'  {n} load balancer service(s)')"
   # `helm uninstall` returns as soon as Kubernetes deletes the Service object.
   # The AWS-side ELB deletion is asynchronous and takes longer, so polling AWS
   # (not Kubernetes) is the only honest way to know it is gone.
-  for i in $(seq 1 60); do
-    CLB=$(aws elb describe-load-balancers --region $REGION \
-            --query 'length(LoadBalancerDescriptions)' --output text 2>/dev/null || echo 0)
-    NLB=$(aws elbv2 describe-load-balancers --region $REGION \
-            --query 'length(LoadBalancers)' --output text 2>/dev/null || echo 0)
-    printf '  t+%-4s classic=%s  v2=%s\n' "$((i*5))s" "$CLB" "$NLB"
-    [ "$CLB" = "0" ] && [ "$NLB" = "0" ] && { echo "  all load balancers released"; break; }
-    sleep 5
-  done
+  #
+  # Scoped to MY VPC, not to a region-wide count. This account is shared and
+  # already had another project's load balancer in it, so waiting for the total
+  # to reach zero would have waited forever and then proceeded anyway -- a check
+  # that cannot pass is worse than no check, because it looks like one.
+  MYVPC=$(terraform output -raw vpc_id 2>/dev/null || echo "")
+  if [ -n "$MYVPC" ]; then
+    for i in $(seq 1 60); do
+      CLB=$(aws elb describe-load-balancers --region $REGION \
+              --query "length(LoadBalancerDescriptions[?VPCId=='$MYVPC'])" --output text 2>/dev/null || echo 0)
+      NLB=$(aws elbv2 describe-load-balancers --region $REGION \
+              --query "length(LoadBalancers[?VpcId=='$MYVPC'])" --output text 2>/dev/null || echo 0)
+      printf '  t+%-4s in %s: classic=%s v2=%s\n' "$((i*5))s" "$MYVPC" "$CLB" "$NLB"
+      [ "$CLB" = "0" ] && [ "$NLB" = "0" ] && { echo "  my VPC holds no load balancers"; break; }
+      sleep 5
+    done
+    echo
+    echo "--- leftover ENIs would block subnet deletion; check for them too ---"
+    for i in $(seq 1 24); do
+      ENI=$(aws ec2 describe-network-interfaces --region $REGION \
+              --filters "Name=vpc-id,Values=$MYVPC" \
+              --query 'length(NetworkInterfaces)' --output text 2>/dev/null || echo 0)
+      printf '  t+%-4s ENIs in VPC: %s\n' "$((i*5))s" "$ENI"
+      [ "$ENI" = "0" ] && { echo "  VPC is clear"; break; }
+      sleep 5
+    done
+  else
+    echo "  (no vpc_id in state; skipping the scoped wait)"
+  fi
 else
   echo "No reachable cluster; nothing to clean up on the Kubernetes side."
 fi
