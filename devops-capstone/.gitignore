@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+
+# Secrets and local config -- never committed
+.env
+.env.*
+!.env.example
+
+# Terraform: provider binaries are hundreds of MB, and state contains
+# infrastructure detail (and sometimes secrets) that does not belong in git.
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# OS
+.DS_Store
