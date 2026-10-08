@@ -655,6 +655,14 @@ it. Waiting for the region's total to reach zero would have run the full timeout
 and then proceeded anyway — **a check that cannot pass is worse than no check,
 because it still looks like one.**
 
+![lb release](screenshots/d2-delete-the-kubernetes-objects-that-own-aws-res.png)
+
+The wait is scoped and it worked: the load balancers left this VPC, then the
+ENIs drained from 9 to 0, and only then did Terraform touch the subnets.
+
+![destroy](screenshots/d3-destroy-the-infrastructure.png)
+![gone](screenshots/d4-gone-confirmed-from-outside-terraform.png)
+
 Step 5 asks each service directly, phrased so that *success of the command means
 a leftover*:
 
@@ -671,6 +679,28 @@ The instance check is scoped to the **VPC**, not to the `Owner` tag, for the
 reason in [What went wrong](#14-what-went-wrong): EKS managed node groups do not
 propagate `default_tags` to the instances they launch, so a tag-scoped check is
 blind to exactly the resources that cost the most.
+
+Every one came back clean:
+
+```
+aws eks list-clusters          → no clinicflow cluster
+aws ec2 describe-vpcs          → no VPC of mine
+aws ec2 describe-instances     → no instances left in the VPC
+aws ec2 describe-nat-gateways  → no NAT gateway of mine
+aws ec2 describe-addresses     → no Elastic IP of mine
+aws ec2 describe-volumes       → no unattached volumes
+aws logs describe-log-groups   → log group removed
+tagging API                    → (nothing indexed)
+terraform state list           → (empty)
+```
+
+![sweep](screenshots/d5-nothing-tagged-owner-24bcs10248-anywhere-in-th.png)
+
+And checked once more by hand, outside the script: the account's NAT gateway
+count, Elastic IP count, load-balancer count and running-instance count are all
+back to exactly the baseline recorded before any of this was created. **Those
+belong to other projects on this shared account and were never touched** — every
+filter above is scoped to `Owner=24BCS10248` or to this project's own VPC.
 
 ---
 
