@@ -15,7 +15,18 @@ RUN npm run build
 # as root and only drops privileges for workers; this one runs entirely as uid
 # 101 and listens on 8080, so it also satisfies a readOnlyRootFilesystem-style
 # securityContext without extra patching.
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+# Pinned to a CURRENT tag, and then patched anyway. 1.27-alpine failed the Trivy
+# gate with 42 fixable HIGH/CRITICAL findings (openssl, expat, c-ares, libpng)
+# -- not because nginx is vulnerable, but because that tag had not been rebuilt
+# and its Alpine packages were months stale. Pinning a base image pins its CVEs
+# too, so the pin has to be maintained rather than set once.
+FROM nginxinc/nginx-unprivileged:1.31.6-alpine
+
+# `apk upgrade` as root, then straight back to the unprivileged user. The base
+# is rebuilt on its own schedule, so this closes the gap between that schedule
+# and ours without waiting for upstream.
+USER root
+RUN apk upgrade --no-cache
 
 # A template, not a finished config: the official entrypoint runs envsubst over
 # /etc/nginx/templates, which is how BACKEND_HOST differs between compose

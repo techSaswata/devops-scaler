@@ -1,4 +1,17 @@
-fastapi==0.115.6
+# These three move together, and that is the whole story of one pipeline failure.
+#
+# Trivy failed the build on starlette 0.41.3 (CVE-2025-62727, HIGH - DoS via
+# Range header merging). FastAPI 0.115.6 capped starlette below the patched
+# release, so the fix meant moving FastAPI too. FastAPI 0.143 then broke
+# prometheus-fastapi-instrumentator 7.0.2, which assumes every entry in
+# app.routes has a .path attribute and crashed with
+#   AttributeError: '_IncludedRouter' object has no attribute 'path'
+# on every request. Instrumentator 8.1.0 fixes that and requires starlette 1.x.
+#
+# starlette is pinned explicitly rather than left to resolve so that a
+# transitive bump cannot quietly re-introduce the CVE.
+fastapi==0.143.0
+starlette==1.7.0
 uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
 psycopg[binary]==3.2.13
@@ -6,4 +19,4 @@ alembic==1.14.0
 pydantic==2.10.4
 email-validator==2.2.0
 pydantic-settings==2.7.0
-prometheus-fastapi-instrumentator==7.0.2
+prometheus-fastapi-instrumentator==8.1.0
