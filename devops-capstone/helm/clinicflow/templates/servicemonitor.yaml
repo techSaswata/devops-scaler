@@ -1,4 +1,22 @@
+{{- /*
+  A ServiceMonitor is a Prometheus Operator CRD. If the operator is not
+  installed, the CRD does not exist and Helm fails the WHOLE release with:
+
+    resource mapping not found for name: "..." namespace: ""
+    no matches for kind "ServiceMonitor" in version "monitoring.coreos.com/v1"
+    ensure CRDs are installed first
+
+  That is a bad failure mode: the application has nothing to do with Prometheus,
+  yet it cannot be installed at all unless Prometheus happens to be there first.
+  It also makes the install order load-bearing, which is exactly the kind of
+  hidden coupling that breaks a fresh cluster.
+
+  .Capabilities.APIVersions is Helm's view of what the cluster actually serves,
+  so the chart installs cleanly either way and simply picks the integration up
+  on the next `helm upgrade` once the operator exists.
+*/ -}}
 {{- if .Values.monitoring.serviceMonitor.enabled }}
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1" }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -13,4 +31,9 @@ spec:
     - port: http
       path: /metrics
       interval: {{ .Values.monitoring.serviceMonitor.interval }}
+{{- else }}
+{{- /* No operator yet. Rendered as a comment so `helm template` still shows intent. */ -}}
+# ServiceMonitor skipped: monitoring.coreos.com/v1 is not served by this cluster.
+# Install kube-prometheus-stack, then re-run `helm upgrade` to create it.
+{{- end }}
 {{- end }}
