@@ -58,8 +58,12 @@ for i in $(seq 1 60); do
 done
 echo "LB=$LB"
 
-hr "2. NAMESPACE"
+hr "2. NAMESPACE AND STORAGE CLASS"
 runfull "kubectl apply -f $D/k8s/namespace.yaml"
+# EKS ships no DEFAULT StorageClass, so a PVC that does not name one binds to
+# nothing. This adds a gp3 class backed by the CSI driver and marks it default.
+runfull "kubectl apply -f $D/k8s/storageclass.yaml"
+runfull "kubectl get storageclass"
 runfull "kubectl get ns $NS --show-labels"
 echo ">> Pod Security Admission is enforced at 'restricted' on this namespace."
 

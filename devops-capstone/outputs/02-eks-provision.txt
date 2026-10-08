@@ -91,3 +91,156 @@ To perform exactly these actions, run the following command to apply:
 EKS control planes take 8-12 minutes, and the node group another 3-5.
 
 $ terraform apply -no-color -auto-approve tfplan
+aws_eks_node_group.main: Still creating... [05m00s elapsed]
+aws_eks_node_group.main: Still creating... [05m10s elapsed]
+aws_eks_node_group.main: Still creating... [05m20s elapsed]
+aws_eks_node_group.main: Still creating... [05m30s elapsed]
+aws_eks_node_group.main: Still creating... [05m40s elapsed]
+aws_eks_node_group.main: Still creating... [05m50s elapsed]
+aws_eks_node_group.main: Still creating... [06m00s elapsed]
+aws_eks_node_group.main: Still creating... [06m10s elapsed]
+aws_eks_node_group.main: Still creating... [06m20s elapsed]
+aws_eks_node_group.main: Still creating... [06m30s elapsed]
+aws_eks_node_group.main: Still creating... [06m40s elapsed]
+aws_eks_node_group.main: Still creating... [06m50s elapsed]
+aws_eks_node_group.main: Still creating... [07m00s elapsed]
+aws_eks_node_group.main: Still creating... [07m10s elapsed]
+aws_eks_node_group.main: Still creating... [07m20s elapsed]
+aws_eks_node_group.main: Still creating... [07m30s elapsed]
+aws_eks_node_group.main: Still creating... [07m40s elapsed]
+aws_eks_node_group.main: Still creating... [07m50s elapsed]
+aws_eks_node_group.main: Still creating... [08m00s elapsed]
+aws_eks_node_group.main: Still creating... [08m10s elapsed]
+Stopping operation...
+
+Interrupt received.
+Please wait for Terraform to exit or data loss may occur.
+Gracefully shutting down...
+
+
+Error: execution halted
+
+
+Error: execution halted
+
+
+Error: waiting for EKS Node Group (clinicflow:clinicflow-ng) create: context canceled
+
+  with aws_eks_node_group.main,
+  on eks.tf line 44, in resource "aws_eks_node_group" "main":
+  44: resource "aws_eks_node_group" "main" {
+
+
+Error: creating EC2 EIP: operation error EC2: AllocateAddress, https response error StatusCode: 400, RequestID: 704a5b3f-bb66-4bfa-93e3-6ba152f0e241, api error AddressLimitExceeded: The maximum number of addresses has been reached.
+
+  with aws_eip.nat[0],
+  on network.tf line 65, in resource "aws_eip" "nat":
+  65: resource "aws_eip" "nat" {
+
+=== 5. OUTPUTS ===
+
+$ terraform output -no-color
+cluster_endpoint = "https://F1D6E5C260E2618996449EFA62F10DED.gr7.ap-south-1.eks.amazonaws.com"
+cluster_name = "clinicflow"
+cluster_version = "1.31"
+configure_kubectl = "aws eks update-kubeconfig --region ap-south-1 --name clinicflow"
+private_subnet_ids = [
+  "subnet-01e9e16eb85d5cec4",
+  "subnet-0c92ff5cbaea57726",
+]
+public_subnet_ids = [
+  "subnet-06e26cb847bd18d1e",
+  "subnet-000473db4ddf11d5f",
+]
+vpc_id = "vpc-0e2d1ed18bbfb751f"
+
+=== 6. THE CLUSTER EXISTS, ASKED OF AWS RATHER THAN OF STATE ===
+
+$ aws eks describe-cluster --name clinicflow --query 'cluster.{Name:name,Status:status,Version:version,Endpoint:endpoint}' --output table
+-------------------------------------------------------------------------------------------
+|                                     DescribeCluster                                     |
++----------+------------------------------------------------------------------------------+
+|  Endpoint|  https://F1D6E5C260E2618996449EFA62F10DED.gr7.ap-south-1.eks.amazonaws.com   |
+|  Name    |  clinicflow                                                                  |
+|  Status  |  ACTIVE                                                                      |
+|  Version |  1.31                                                                        |
++----------+------------------------------------------------------------------------------+
+
+$ aws eks describe-nodegroup --cluster-name clinicflow --nodegroup-name clinicflow-ng --query 'nodegroup.{Status:status,Instance:instanceTypes,Desired:scalingConfig.desiredSize}' --output table
+-------------------------
+|   DescribeNodegroup   |
++----------+------------+
+|  Desired |  Status    |
++----------+------------+
+|  2       |  CREATING  |
++----------+------------+
+||      Instance       ||
+|+---------------------+|
+||  t3.medium          ||
+|+---------------------+|
+
+$ aws ec2 describe-vpcs --vpc-ids vpc-0e2d1ed18bbfb751f --query 'Vpcs[0].{Id:VpcId,Cidr:CidrBlock}' --output table
+-------------------------------------------
+|              DescribeVpcs               |
++---------------+-------------------------+
+|     Cidr      |           Id            |
++---------------+-------------------------+
+|  10.40.0.0/16 |  vpc-0e2d1ed18bbfb751f  |
++---------------+-------------------------+
+
+$ aws ec2 describe-subnets --filters Name=vpc-id,Values=vpc-0e2d1ed18bbfb751f --query 'sort_by(Subnets,&CidrBlock)[].{Id:SubnetId,AZ:AvailabilityZone,Cidr:CidrBlock,Public:MapPublicIpOnLaunch}' --output table
+------------------------------------------------------------------------
+|                            DescribeSubnets                           |
++-------------+----------------+----------------------------+----------+
+|     AZ      |     Cidr       |            Id              | Public   |
++-------------+----------------+----------------------------+----------+
+|  ap-south-1a|  10.40.0.0/20  |  subnet-06e26cb847bd18d1e  |  True    |
+|  ap-south-1b|  10.40.16.0/20 |  subnet-000473db4ddf11d5f  |  True    |
+|  ap-south-1a|  10.40.32.0/20 |  subnet-01e9e16eb85d5cec4  |  False   |
+|  ap-south-1b|  10.40.48.0/20 |  subnet-0c92ff5cbaea57726  |  False   |
++-------------+----------------+----------------------------+----------+
+
+$ aws eks list-addons --cluster-name clinicflow --output table
+------------
+|ListAddons|
++----------+
+
+=== 7. POINT KUBECTL AT IT ===
+
+$ aws eks update-kubeconfig --region ap-south-1 --name clinicflow
+Updated context arn:aws:eks:ap-south-1:043848616679:cluster/clinicflow in /Users/techsaswata/.kube/config
+
+$ kubectl get nodes -o wide
+No resources found
+
+$ kubectl get pods -A --no-headers | wc -l
+       2
+>> Nodes Ready and the system pods running: the CNI, CoreDNS and
+>> kube-proxy addons all came up, so pods will get addresses and DNS.
+
+=== 8. STATE ===
+
+$ terraform state list
+data.aws_availability_zones.available
+data.aws_iam_policy_document.cluster_assume
+data.aws_iam_policy_document.node_assume
+aws_cloudwatch_log_group.eks
+aws_eks_cluster.main
+aws_eks_node_group.main
+aws_iam_role.cluster
+aws_iam_role.node
+aws_iam_role_policy_attachment.cluster_policy
+aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"]
+aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"]
+aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"]
+aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"]
+aws_internet_gateway.main
+aws_route_table.public
+aws_route_table_association.public[0]
+aws_route_table_association.public[1]
+aws_subnet.private[0]
+aws_subnet.private[1]
+aws_subnet.public[0]
+aws_subnet.public[1]
+aws_vpc.main
+>> 22 addresses under management.

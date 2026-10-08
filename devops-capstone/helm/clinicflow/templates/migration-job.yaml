@@ -1,20 +1,36 @@
 {{- if .Values.migrations.enabled }}
+{{- /*
+  NOT a Helm hook, and that is the fix for a deadlock rather than a preference.
+
+  This was originally annotated `helm.sh/hook: pre-install,pre-upgrade` with a
+  hook-weight, on the assumption that the weight would order it after Postgres.
+  It does not. Hook weights order hooks relative to OTHER HOOKS; every hook in a
+  phase runs before any ordinary resource in the release. So on a fresh install
+  Helm created this Job first, its init container sat waiting for a Postgres
+  that had not been created yet, and the install hung until it timed out --
+  `kubectl get pods -n clinicflow` showed exactly one pod, Init:0/1, and no
+  database anywhere.
+
+  As an ordinary resource it is applied alongside Postgres, waits for it, and
+  migrates. The backend then waits for the schema (see its initContainer), so
+  the ordering constraint that actually matters -- no app traffic against an
+  un-migrated database -- is enforced where it belongs rather than by hoping
+  about hook weights.
+
+  The revision is in the name so each upgrade runs its own Job: a completed Job's
+  pod template is immutable, and reusing the name fails with "field is
+  immutable" on the second upgrade.
+*/ -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # The revision is in the name because a Helm hook Job is immutable: reusing
-  # one name would make the second upgrade fail with "field is immutable".
   name: {{ include "clinicflow.fullname" . }}-migrate-{{ .Release.Revision }}
-  labels: {{- include "clinicflow.labels" . | nindent 4 }}
-  annotations:
-    # pre-install AND pre-upgrade, with a weight that puts it after the
-    # database exists. Helm waits for this Job to succeed before touching the
-    # Deployments, so the new code never starts against an un-migrated schema.
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "5"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "clinicflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
 spec:
   backoffLimit: {{ .Values.migrations.backoffLimit }}
+  ttlSecondsAfterFinished: 600
   template:
     metadata:
       labels:
@@ -30,9 +46,8 @@ spec:
         - name: tmp
           emptyDir: {}
       initContainers:
-        # Postgres can take a while to come up on a cold install, and Alembic
-        # fails immediately rather than retrying. Wait for a real connection
-        # instead of sleeping and hoping.
+        # Alembic fails immediately rather than retrying, so wait for a real
+        # connection instead of sleeping and hoping.
         - name: wait-for-postgres
           image: {{ .Values.postgres.image }}
           command:
@@ -40,7 +55,7 @@ spec:
             - -c
             - |
               until pg_isready -h {{ include "clinicflow.fullname" . }}-postgres -U {{ .Values.postgres.username }}; do
-                echo "waiting for postgres..."; sleep 2
+                echo "waiting for postgres..."; sleep 3
               done
               echo "postgres is accepting connections"
           securityContext:

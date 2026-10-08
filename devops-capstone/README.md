@@ -678,6 +678,46 @@ lose the outer layer where an inbound route simply does not exist. That is a rea
 reduction in defence in depth, accepted deliberately and for a stated reason,
 which is different from not having thought about it.
 
+**Every PVC stayed `Pending`, and the reason was four layers away.** Postgres
+would not schedule. The pod's own event said
+`pod has unbound immediate PersistentVolumeClaims`; the PVC's said
+`no persistent volumes available for this claim and no storage class is set`.
+Neither mentions the actual causes, and there were two.
+
+First, **EKS ships no *default* StorageClass.** It ships exactly one class, `gp2`,
+without the `is-default-class` annotation — so a PVC that does not name a class
+binds to nothing at all. The chart now gets an explicit `gp3` class
+([`k8s/storageclass.yaml`](k8s/storageclass.yaml)) using the CSI provisioner,
+marked default, with `WaitForFirstConsumer` so the volume is created in the same
+AZ as the pod that will mount it.
+
+Second, and better hidden: the **EBS CSI controller was in `CrashLoopBackOff`**,
+five of its six containers dying with
+
+```
+Failed health check (verify network connection and IAM credentials):
+dry-run EC2 API call failed: ... no EC2 IMDS role found,
+ec2imds: GetMetadata, context deadline exceeded
+```
+
+Attaching `AmazonEBSCSIDriverPolicy` to the **node** role is not enough. The
+controller pod asks the instance metadata service for credentials, and EKS
+restricts the IMDS hop limit so a pod cannot reach it. The fix is to give the
+service account an identity of its own — an `aws_eks_pod_identity_association`
+for `kube-system/ebs-csi-controller-sa`, which needs no OIDC provider and does
+not touch instance metadata.
+
+It also deadlocked Terraform: `aws_eks_addon.ebs_csi` waits for the addon to
+report ACTIVE, the addon cannot become ACTIVE while its controller crash-loops,
+and the fix for the crash-loop was a Terraform resource behind the same state
+lock. The way out was to interrupt the apply and re-apply with the association
+included, so the two converge in one pass.
+
+The general shape is worth keeping: **a storage failure surfaced as a scheduling
+message.** Nothing in the pod's events, the PVC's events, or the StatefulSet
+pointed at IAM. The chain only became visible by walking down a layer at a time —
+pod, claim, class, provisioner, credentials.
+
 **EKS node instances do not inherit `default_tags`.** A managed node group does
 not propagate the provider's tags to the EC2 instances it launches, so both
 workers came up with no `Owner` tag. The teardown check was scoped to
