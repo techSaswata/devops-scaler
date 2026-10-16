@@ -20,6 +20,9 @@ so each claim here can be checked against the evidence that produced it. Where
 something failed — and several things did — the failure is in the log and
 explained in the text rather than quietly re-run.
 
+The accompanying slide deck is [presentation.pdf](presentation.pdf):
+sixteen slides that run from the domain rule to the verified teardown.
+
 ---
 
 ## Contents
@@ -28,18 +31,19 @@ explained in the text rather than quietly re-run.
 |---|---|
 | 1 | [What it does](#1-what-it-does) |
 | 2 | [Architecture](#2-architecture) |
-| 3 | [Run it locally](#3-run-it-locally) |
-| 4 | [The application](#4-the-application) |
-| 5 | [Tests](#5-tests) |
-| 6 | [Docker](#6-docker) |
-| 7 | [CI/CD](#7-cicd) |
-| 8 | [DevSecOps — Trivy](#8-devsecops--trivy) |
-| 9 | [Terraform — VPC and EKS](#9-terraform--vpc-and-eks) |
-| 10 | [Kubernetes and Helm](#10-kubernetes-and-helm) |
-| 11 | [Observability](#11-observability) |
-| 12 | [Troubleshooting lab](#12-troubleshooting-lab) |
-| 13 | [Tearing it down](#13-tearing-it-down) |
-| 14 | [What went wrong](#14-what-went-wrong) |
+| 3 | [Tech stack](#3-tech-stack) |
+| 4 | [Run it locally](#4-run-it-locally) |
+| 5 | [The application](#5-the-application) |
+| 6 | [Tests](#6-tests) |
+| 7 | [Docker](#7-docker) |
+| 8 | [CI/CD](#8-cicd) |
+| 9 | [DevSecOps — Trivy](#9-devsecops--trivy) |
+| 10 | [Terraform — VPC and EKS](#10-terraform--vpc-and-eks) |
+| 11 | [Kubernetes and Helm](#11-kubernetes-and-helm) |
+| 12 | [Observability](#12-observability) |
+| 13 | [Troubleshooting lab](#13-troubleshooting-lab) |
+| 14 | [Tearing it down](#14-tearing-it-down) |
+| 15 | [What went wrong](#15-what-went-wrong) |
 
 ---
 
@@ -141,7 +145,30 @@ something that is not there.
 
 ---
 
-## 3. Run it locally
+## 3. Tech stack
+
+| Layer | Choice | Why this one |
+| --- | --- | --- |
+| Backend | **Python 3.12**, FastAPI, SQLAlchemy 2.0, Alembic | async-capable, and the OpenAPI document comes free rather than being maintained by hand |
+| Database | **PostgreSQL 16** | the booking rule is a partial unique index, which needs a real RDBMS |
+| Frontend | **React 18**, Vite 6, plain CSS | no component library, so the bundle stays ~49 KB gzipped |
+| Web server | **nginx** (unprivileged image) | serves the SPA and proxies `/api`, so the browser sees one origin |
+| Containers | **Docker**, multi-stage, non-root | 88.7 MB backend, 26.7 MB frontend, no toolchain in either runtime |
+| Orchestration | **Kubernetes 1.31** on **AWS EKS** | managed control plane; the node group is Terraform-managed |
+| Packaging | **Helm 3** | one chart, 13 resources, migrations in a Job rather than a hook |
+| Infrastructure | **Terraform ~> 1.5**, AWS provider 5.x | VPC, subnets, EKS, node group, addons, all reproducible |
+| GitOps | **Argo CD** | git is the desired state; the cluster pulls rather than CI pushing |
+| CI/CD | **GitHub Actions** | test → build → scan → push, with the scan as a gate |
+| Registry | **GitHub Container Registry** | public, multi-arch, SHA-tagged |
+| Security | **Trivy** (image), bandit-style gating in CI | fails the build on fixable HIGH/CRITICAL |
+| Metrics | **Prometheus** + **Grafana** (kube-prometheus-stack) | histograms, not averages |
+| Storage | **EBS CSI** driver, `gp3` StorageClass | EKS ships neither by default |
+
+**Languages:** Python, JavaScript (JSX), HCL, YAML, SQL, Bash.
+
+---
+
+## 4. Run it locally
 
 ```bash
 cd devops-capstone
@@ -174,7 +201,7 @@ the backend crash-loops on a cold start.
 
 ---
 
-## 4. The application
+## 5. The application
 
 FastAPI, SQLAlchemy 2.0, Alembic, PostgreSQL 16. No ORM-free shortcuts and no
 raw SQL in the handlers.
@@ -228,7 +255,7 @@ often drops dialect-specific index predicates.
 
 ---
 
-## 5. Tests
+## 6. Tests
 
 16 tests, all passing, covering the probes, doctors, patients, and the full
 appointment lifecycle.
@@ -252,7 +279,7 @@ rejects.
 
 ---
 
-## 6. Docker
+## 7. Docker
 
 | Image | Base | Size | Runs as |
 | --- | --- | --- | --- |
@@ -285,7 +312,7 @@ touch: cannot touch '/forbidden': Permission denied
 
 ---
 
-## 7. CI/CD
+## 8. CI/CD
 
 [`.github/workflows/clinicflow.yml`](.github/workflows/clinicflow.yml) — live and
 green. GitHub only reads workflows from the repository root, so the executing
@@ -325,7 +352,7 @@ Public, multi-arch, and every tag is a full commit SHA. The
 
 ---
 
-## 8. DevSecOps — Trivy
+## 9. DevSecOps — Trivy
 
 The scan sits **between the build and the push**, not after it. An image that
 fails is never published, so a vulnerable tag cannot sit in the registry waiting
@@ -371,7 +398,7 @@ log. It is 30 days now.
 
 ---
 
-## 9. Terraform — VPC and EKS
+## 10. Terraform — VPC and EKS
 
 [`terraform/`](terraform/) provisions the cluster from nothing:
 
@@ -440,7 +467,7 @@ omits `sqlalchemy.url` for the same reason — the URL is read from the environm
 
 ---
 
-## 10. Kubernetes and Helm
+## 11. Kubernetes and Helm
 
 One chart, [`helm/clinicflow/`](helm/clinicflow/), rendering 13 resources.
 
@@ -525,7 +552,7 @@ the API server rather than quietly running with more privilege than it needs.
 
 ---
 
-## 11. Observability
+## 12. Observability
 
 [`monitoring/`](monitoring/) holds the kube-prometheus-stack values, the alert
 rules and a Grafana dashboard.
@@ -599,7 +626,7 @@ nobody.
 
 ---
 
-## 12. Troubleshooting lab
+## 13. Troubleshooting lab
 
 [`troubleshooting/`](troubleshooting/) plants four faults in a separate
 `clinicflow-broken` namespace, so the working deployment is untouched.
@@ -650,7 +677,7 @@ was made to actually wait for the thing it claimed to prove.
 
 ---
 
-## 13. Tearing it down
+## 14. Tearing it down
 
 ```bash
 ./scripts/09-destroy.sh
@@ -702,7 +729,7 @@ aws logs describe-log-groups   → log group removed
 ```
 
 The instance check is scoped to the **VPC**, not to the `Owner` tag, for the
-reason in [What went wrong](#14-what-went-wrong): EKS managed node groups do not
+reason in [What went wrong](#15-what-went-wrong): EKS managed node groups do not
 propagate `default_tags` to the instances they launch, so a tag-scoped check is
 blind to exactly the resources that cost the most.
 
@@ -730,7 +757,7 @@ filter above is scoped to `Owner=24BCS10248` or to this project's own VPC.
 
 ---
 
-## 14. What went wrong
+## 15. What went wrong
 
 Every one of these cost real time, and each is in the repository's history
 rather than tidied away.
@@ -879,7 +906,7 @@ to this project's own VPC, and it waits for the ENIs to clear too.
   deployment points `DATABASE_URL` at RDS and deletes that section of the chart,
   which is why the URL is assembled from values rather than hard-coded.
 - **The tests run on SQLite**, not Postgres. Stated in full in
-  [Tests](#5-tests), along with the one place it could have hidden a bug and
+  [Tests](#6-tests), along with the one place it could have hidden a bug and
   what was done about it.
 - **Grafana's admin password is in the values file.** The cluster lives for the
   length of a demo and is then destroyed; a persistent deployment reads it from a
