@@ -23,6 +23,9 @@ explained in the text rather than quietly re-run.
 The accompanying slide deck is [presentation.pdf](presentation.pdf):
 sixteen slides that run from the domain rule to the verified teardown.
 
+The walkthrough is [demo-video.mp4](demo-video.mp4): seven and a half minutes,
+narrated, against the running system rather than a slideshow.
+
 ---
 
 ## Contents
