@@ -36,3 +36,7 @@ kubeconfig
 
 # OS
 .DS_Store
+.demo-venv/
+
+# Local working files, kept out of the repository.
+video/

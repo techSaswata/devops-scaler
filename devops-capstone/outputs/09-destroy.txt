@@ -1,8 +1,8 @@
-target VPC: vpc-0e2d1ed18bbfb751f
+target VPC: vpc-09de8f819d2e82541
 
 === 1. DELETE THE KUBERNETES OBJECTS THAT OWN AWS RESOURCES ===
 --- load balancers currently owned by Services ---
-  ingress-nginx/ingress-nginx-controller  ->  a97741fcc159147eea380fcf574b3d02-c8100a421ead9cba.elb.ap-south-1.amazonaws.com
+  ingress-nginx/ingress-nginx-controller  ->  ad15c0507eda8462bad5ca2732ca49bb-8904f9911adb8591.elb.ap-south-1.amazonaws.com
   1 load balancer service(s)
 
 
@@ -20,20 +20,21 @@ release "ingress-nginx" uninstalled
 
 $ kubectl delete ns clinicflow clinicflow-broken monitoring ingress-nginx --ignore-not-found --timeout=5m || true
 namespace "clinicflow" deleted
+namespace "clinicflow-broken" deleted
 namespace "monitoring" deleted
 namespace "ingress-nginx" deleted
 
 --- waiting for AWS to actually release the load balancers ---
-  t+5s   in vpc-0e2d1ed18bbfb751f: classic=0 v2=0
+  t+5s   in vpc-09de8f819d2e82541: classic=0 v2=0
   my VPC holds no load balancers
 
 --- leftover ENIs would block subnet deletion; check for them too ---
-  t+5s   ENIs in VPC: 9
-  t+10s  ENIs in VPC: 8
-  t+15s  ENIs in VPC: 6
-  t+20s  ENIs in VPC: 6
-  t+25s  ENIs in VPC: 6
-  t+30s  ENIs in VPC: 6
+  t+5s   ENIs in VPC: 10
+  t+10s  ENIs in VPC: 10
+  t+15s  ENIs in VPC: 7
+  t+20s  ENIs in VPC: 7
+  t+25s  ENIs in VPC: 7
+  t+30s  ENIs in VPC: 7
   t+35s  ENIs in VPC: 6
   t+40s  ENIs in VPC: 6
   t+45s  ENIs in VPC: 6
@@ -56,9 +57,11 @@ namespace "ingress-nginx" deleted
 === 2. DESTROY THE INFRASTRUCTURE ===
 
 $ terraform destroy -no-color -auto-approve
-aws_internet_gateway.main: Destroying... [id=igw-02fbf0207d15d4c9f]
-aws_iam_role.node: Destruction complete after 1s
+aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"]: Destruction complete after 2s
+aws_iam_role_policy_attachment.node["arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"]: Destruction complete after 2s
+aws_iam_role.node: Destroying... [id=clinicflow-eks-node]
 aws_internet_gateway.main: Destruction complete after 1s
+aws_iam_role.node: Destruction complete after 1s
 aws_eks_cluster.main: Still destroying... [id=clinicflow, 00m10s elapsed]
 aws_eks_cluster.main: Still destroying... [id=clinicflow, 00m20s elapsed]
 aws_eks_cluster.main: Still destroying... [id=clinicflow, 00m30s elapsed]
@@ -68,31 +71,29 @@ aws_eks_cluster.main: Still destroying... [id=clinicflow, 01m00s elapsed]
 aws_eks_cluster.main: Still destroying... [id=clinicflow, 01m10s elapsed]
 aws_eks_cluster.main: Still destroying... [id=clinicflow, 01m20s elapsed]
 aws_eks_cluster.main: Still destroying... [id=clinicflow, 01m30s elapsed]
-aws_eks_cluster.main: Still destroying... [id=clinicflow, 01m40s elapsed]
-aws_eks_cluster.main: Still destroying... [id=clinicflow, 01m50s elapsed]
-aws_eks_cluster.main: Still destroying... [id=clinicflow, 02m00s elapsed]
-aws_eks_cluster.main: Still destroying... [id=clinicflow, 02m10s elapsed]
-aws_eks_cluster.main: Still destroying... [id=clinicflow, 02m20s elapsed]
-aws_eks_cluster.main: Still destroying... [id=clinicflow, 02m30s elapsed]
-aws_eks_cluster.main: Still destroying... [id=clinicflow, 02m40s elapsed]
-aws_eks_cluster.main: Still destroying... [id=clinicflow, 02m50s elapsed]
-aws_eks_cluster.main: Still destroying... [id=clinicflow, 03m00s elapsed]
-aws_eks_cluster.main: Destruction complete after 3m10s
-aws_iam_role_policy_attachment.cluster_policy: Destroying... [id=clinicflow-eks-cluster-20261008131212638000000001]
+aws_eks_cluster.main: Still destroying... [id=clinicflow, 01m41s elapsed]
+aws_eks_cluster.main: Still destroying... [id=clinicflow, 01m51s elapsed]
+aws_eks_cluster.main: Still destroying... [id=clinicflow, 02m01s elapsed]
+aws_eks_cluster.main: Still destroying... [id=clinicflow, 02m11s elapsed]
+aws_eks_cluster.main: Still destroying... [id=clinicflow, 02m21s elapsed]
+aws_eks_cluster.main: Still destroying... [id=clinicflow, 02m31s elapsed]
+aws_eks_cluster.main: Still destroying... [id=clinicflow, 02m41s elapsed]
+aws_eks_cluster.main: Destruction complete after 2m47s
+aws_iam_role_policy_attachment.cluster_policy: Destroying... [id=clinicflow-eks-cluster-20261016205504173000000001]
 aws_cloudwatch_log_group.eks: Destroying... [id=/aws/eks/clinicflow/cluster]
-aws_subnet.private[0]: Destroying... [id=subnet-01e9e16eb85d5cec4]
-aws_subnet.private[1]: Destroying... [id=subnet-0c92ff5cbaea57726]
-aws_subnet.public[0]: Destroying... [id=subnet-06e26cb847bd18d1e]
-aws_subnet.public[1]: Destroying... [id=subnet-000473db4ddf11d5f]
-aws_cloudwatch_log_group.eks: Destruction complete after 0s
-aws_subnet.private[1]: Destruction complete after 0s
-aws_subnet.private[0]: Destruction complete after 0s
-aws_subnet.public[0]: Destruction complete after 0s
+aws_subnet.public[1]: Destroying... [id=subnet-0217a9d214e95efb8]
+aws_subnet.private[0]: Destroying... [id=subnet-0d3db6f1b9deb96fa]
+aws_subnet.private[1]: Destroying... [id=subnet-0aea5c8a3f53c84ff]
+aws_subnet.public[0]: Destroying... [id=subnet-083cb5c93052cf954]
+aws_cloudwatch_log_group.eks: Destruction complete after 1s
+aws_subnet.private[0]: Destruction complete after 1s
+aws_subnet.private[1]: Destruction complete after 1s
+aws_subnet.public[0]: Destruction complete after 1s
 aws_subnet.public[1]: Destruction complete after 1s
-aws_vpc.main: Destroying... [id=vpc-0e2d1ed18bbfb751f]
+aws_vpc.main: Destroying... [id=vpc-09de8f819d2e82541]
 aws_iam_role_policy_attachment.cluster_policy: Destruction complete after 1s
 aws_iam_role.cluster: Destroying... [id=clinicflow-eks-cluster]
-aws_vpc.main: Destruction complete after 0s
+aws_vpc.main: Destruction complete after 1s
 aws_iam_role.cluster: Destruction complete after 1s
 
 Destroy complete! Resources: 31 destroyed.
