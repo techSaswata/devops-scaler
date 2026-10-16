@@ -157,12 +157,77 @@ h1 { margin: 0; font-size: 22px; letter-spacing: -.2px; }
 @media (max-width: 860px) {
   .app { grid-template-columns: 1fr; }
   .sidebar {
-    flex-direction: row; align-items: center; gap: 16px;
+    /* brand on its own line, nav underneath: at 390px the wordmark plus four
+       items cannot share a row without something being cut. */
+    flex-direction: column; align-items: flex-start; gap: 10px;
     border-right: none; border-bottom: 1px solid var(--border); padding: 12px 16px;
+    /* A grid item defaults to min-width:auto, so it refuses to shrink below the
+       intrinsic width of its contents. In row mode that is the whole nav laid
+       out in a line, which made the sidebar wider than the phone and dragged
+       the entire grid with it -- the header button and the table ended up
+       clipped off the right edge rather than wrapping or scrolling. */
+    min-width: 0;
   }
-  .nav { flex-direction: row; overflow-x: auto; }
+  .nav {
+    flex-direction: row;
+    /* WRAP rather than scroll. A horizontally scrolling nav hides whatever does
+       not fit, and the last item ends up sliced down the middle -- which reads
+       as a broken layout rather than as something you can swipe. Wrapping keeps
+       every destination visible at any width, which is the point of a nav. */
+    flex-wrap: wrap;
+    min-width: 0;
+    gap: 4px 6px;
+  }
+  .nav__item { white-space: nowrap; padding: 7px 11px; font-size: 13.5px; }
   .sidebar__foot { display: none; }
   .main { padding: 18px 16px 40px; }
+  .header { gap: 12px; }
+  .header .btn--primary { white-space: nowrap; }
   .row-actions { justify-content: flex-start; }
   .form__row { grid-template-columns: 1fr; }
+}
+
+
+/* ---------- phones: stack the table into cards ----------
+   A six-column appointment table cannot be read on a 430px screen. Rather than
+   leave it scrolling sideways -- which works, but hides half the row until you
+   swipe -- the header is dropped and every cell carries its own label, so each
+   appointment becomes a self-contained card. */
+@media (max-width: 720px) {
+  .card { overflow: visible; background: transparent; border: none; }
+  .table, .table tbody, .table tr, .table td { display: block; width: 100%; }
+  .table thead { display: none; }
+
+  .table tr {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    padding: 4px 2px;
+  }
+  .table tr:hover td { background: transparent; }
+
+  .table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    padding: 9px 14px;
+    white-space: normal;
+  }
+  .table td:last-child { border-bottom: none; }
+
+  .table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    flex: 0 0 auto;
+  }
+  /* the actions cell has no label, so let the buttons use the full width */
+  .table td.row-actions::before { content: none; }
+  .table td.row-actions { justify-content: flex-start; flex-wrap: wrap; gap: 6px; }
+  .table td.nowrap { white-space: normal; }
 }

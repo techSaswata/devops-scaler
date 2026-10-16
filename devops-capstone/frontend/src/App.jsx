@@ -128,12 +128,16 @@ export default function App() {
               <tbody>
                 {appointments.map((a) => (
                   <tr key={a.id}>
-                    <td className="nowrap">{whenLabel(a.scheduled_at)}<span className="muted"> · {a.duration_minutes}m</span></td>
-                    <td>{a.patient_name}</td>
-                    <td>{a.doctor_name}</td>
-                    <td className="muted">{a.reason || '—'}</td>
-                    <td><StatusBadge status={a.status} /></td>
-                    <td className="row-actions">
+                    {/* data-label drives the stacked card layout on phones: the
+                        header row is hidden there and each cell prints its own
+                        label instead, so a six-column table does not have to be
+                        scrolled sideways on a 430px screen. */}
+                    <td className="nowrap" data-label="When">{whenLabel(a.scheduled_at)}<span className="muted"> · {a.duration_minutes}m</span></td>
+                    <td data-label="Patient">{a.patient_name}</td>
+                    <td data-label="Doctor">{a.doctor_name}</td>
+                    <td className="muted" data-label="Reason">{a.reason || '—'}</td>
+                    <td data-label="Status"><StatusBadge status={a.status} /></td>
+                    <td className="row-actions" data-label="">
                       {a.status === 'scheduled' && (
                         <>
                           <button className="btn btn--sm" onClick={() => setStatus(a.id, 'completed')}>Complete</button>
