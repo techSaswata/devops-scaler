@@ -28,8 +28,12 @@ docker rm -f \
   apache-host apache-bridge nginx-bind nginx-copy \
   lnx-journal shell-lab 2>/dev/null
 
-echo "==> removing the compose stack"
+echo "==> removing the compose stacks"
 (cd "$(dirname "$0")/06-dockerfiles-and-images/deployment" && docker compose down 2>/dev/null)
+# -v because the capstone's Postgres volume holds only seeded demo data, and
+# leaving it behind makes the next `docker compose up --build` start from a
+# half-migrated database rather than from nothing.
+(cd "$(dirname "$0")/devops-capstone" && docker compose down -v 2>/dev/null)
 
 echo "==> leaving swarm (if active)"
 docker swarm leave --force 2>/dev/null
@@ -43,7 +47,8 @@ docker rmi -f \
   deploy-nodejs:1.0 deploy-python:1.0 deploy-java:1.0 \
   multistage-app:latest singlestage-app:latest \
   nettools net-lab linux-lab-systemd \
-  cicd-demo:local devsecops-demo:local task-api:1.0.0 2>/dev/null
+  cicd-demo:local devsecops-demo:local task-api:1.0.0 \
+  clinicflow-backend:latest clinicflow-frontend:latest 2>/dev/null
 
 # Deleting the cluster removes every namespace, release and Argo CD Application
 # with it, so the individual modules need no separate teardown. Named here only
