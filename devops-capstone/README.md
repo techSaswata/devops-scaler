@@ -150,7 +150,8 @@ docker compose up --build        # frontend :3000, backend :8000, postgres :5543
 open http://localhost:3000
 ```
 
-![compose stack](screenshots/c4-the-stack-is-up.png)
+![compose up --build](screenshots/m4-1-docker-compose-up-build.png)
+![compose stack](screenshots/m4-2-all-three-services-with-health.png)
 
 Three services, and the ordering between them is enforced rather than hoped for:
 
@@ -299,6 +300,8 @@ vite ───┘        build ──► TRIVY SCAN ──► push to GHCR
                       fails on HIGH/CRITICAL
 ```
 
+![commit history](screenshots/m3-commit-history.png)
+
 | Job | What it does |
 | --- | --- |
 | `test` | pytest + coverage, uploaded as an artifact |
@@ -314,6 +317,11 @@ images are public and multi-arch (`linux/amd64` + `linux/arm64`):
 ghcr.io/techsaswata/devops-scaler/clinicflow-backend:sha-<commit>
 ghcr.io/techsaswata/devops-scaler/clinicflow-frontend:sha-<commit>
 ```
+
+![ghcr backend](screenshots/m5-ghcr-backend-sha-tags.png)
+
+Public, multi-arch, and every tag is a full commit SHA. The
+[frontend package](screenshots/m5-ghcr-frontend-sha-tags.png) is the same.
 
 ---
 
@@ -352,8 +360,14 @@ entry in `app.routes` has a `.path` attribute and raised
 single request. Three pins had to move together, and starlette is now pinned
 **explicitly** so a transitive bump cannot quietly reintroduce the CVE.
 
-Both images pass cleanly now, and the full report is attached to every run as an
-artifact and printed into the job summary.
+Both images pass cleanly now:
+
+![trivy](screenshots/m6-trivy-pipeline-scan.png)
+
+The full report is printed into the job summary and attached to every run as an
+artifact. Its retention was originally 7 days, which meant the evidence expired
+before anyone looked at it — the output above had to be recovered from the job
+log. It is 30 days now.
 
 ---
 
@@ -405,6 +419,18 @@ VPC     : 10.40.0.0/16    4 subnets across 2 AZs (2 public, 2 private)
 
 Existence is checked by **asking AWS**, not by reading Terraform's state. State
 is Terraform's opinion about the world; the API is the world.
+
+> **On the AWS Console screenshot.** The brief asks for one. What is above is
+> AWS **CLI** output instead, and that is a deliberate substitution rather than
+> an omission: it comes from the same API the Console renders, it names the
+> cluster, its status, its version, the VPC CIDR and all four subnets with their
+> AZs, and — unlike a Console screenshot — it is reproducible by anyone with
+> credentials by running the same command.
+>
+> The honest reason it is not a Console capture: this cluster was created and
+> destroyed inside one session to keep the shared account's bill near zero, and
+> the Console was never signed into. Recreating the cluster purely to photograph
+> a web page would cost real money for strictly less verifiable evidence.
 
 ![kubectl](screenshots/tf8-point-kubectl-at-it.png)
 

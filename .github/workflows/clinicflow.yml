@@ -59,7 +59,10 @@ jobs:
         with:
           name: backend-coverage
           path: devops-capstone/backend/coverage.xml
-          retention-days: 7
+          # 30, not the 7 it used to be: the Trivy reports and coverage are the
+          # evidence for this project, and at 7 days they expired before anyone
+          # looked. The scan output had to be recovered from the job log instead.
+          retention-days: 30
 
   # -------------------------------------------------------- frontend build ---
   frontend-build:
@@ -87,7 +90,10 @@ jobs:
         with:
           name: frontend-dist
           path: devops-capstone/frontend/dist
-          retention-days: 7
+          # 30, not the 7 it used to be: the Trivy reports and coverage are the
+          # evidence for this project, and at 7 days they expired before anyone
+          # looked. The scan output had to be recovered from the job log instead.
+          retention-days: 30
 
   # ------------------------------------------- build, scan and push images ---
   images:
@@ -172,7 +178,10 @@ jobs:
         with:
           name: trivy-${{ matrix.component }}
           path: trivy-${{ matrix.component }}.txt
-          retention-days: 7
+          # 30, not the 7 it used to be: the Trivy reports and coverage are the
+          # evidence for this project, and at 7 days they expired before anyone
+          # looked. The scan output had to be recovered from the job log instead.
+          retention-days: 30
 
       # Only reached when the scan exited 0.
       - uses: docker/login-action@v3

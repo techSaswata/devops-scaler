@@ -1,0 +1,49 @@
+
+=== 1. docker compose up --build ===
+$ docker compose up --build -d
+
+
+
+
+
+
+
+
+ clinicflow-backend  Built
+ clinicflow-frontend  Built
+ Network clinicflow_default  Creating
+ Network clinicflow_default  Created
+ Volume clinicflow_pgdata  Creating
+ Volume clinicflow_pgdata  Created
+ Container clinicflow-postgres-1  Creating
+ Container clinicflow-postgres-1  Created
+ Container clinicflow-backend-1  Creating
+ Container clinicflow-backend-1  Created
+ Container clinicflow-frontend-1  Creating
+ Container clinicflow-frontend-1  Created
+ Container clinicflow-postgres-1  Starting
+ Container clinicflow-postgres-1  Started
+ Container clinicflow-postgres-1  Waiting
+ Container clinicflow-postgres-1  Healthy
+ Container clinicflow-backend-1  Starting
+ Container clinicflow-backend-1  Started
+ Container clinicflow-backend-1  Waiting
+ Container clinicflow-backend-1  Healthy
+ Container clinicflow-frontend-1  Starting
+ Container clinicflow-frontend-1  Started
+
+=== 2. ALL THREE SERVICES, WITH HEALTH ===
+$ docker compose ps
+SERVICE    STATUS                                     PORTS
+backend    Up 5 seconds (healthy)                     0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
+frontend   Up Less than a second (health: starting)   0.0.0.0:3000->8080/tcp, [::]:3000->8080/tcp
+postgres   Up 11 seconds (healthy)                    0.0.0.0:55432->5432/tcp, [::]:55432->5432/tcp
+
+=== 3. WAIT FOR THE FRONTEND TO ANSWER ON :3000 ===
+  HTTP 200 after ~2s
+$ curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/
+  frontend HTTP 200
+$ curl -s localhost:3000/api/appointments/stats   (API through nginx, same origin)
+{"total":0,"scheduled":0,"completed":0,"cancelled":0,"no_show":0,"upcoming_7_days":0,"doctors":0,"patients":0,"completion_rate":0.0}
+$ curl -s localhost:8000/health
+{"status":"healthy"}
