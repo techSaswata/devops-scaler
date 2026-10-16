@@ -15,7 +15,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Patch the base image's OS packages. This is the layer the image scanner
 # grades, and the base is rebuilt on a schedule, so there are usually fixes
 # waiting by the time it is pulled.
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+ARG PKG_REFRESH=unset
+RUN echo "package refresh: $PKG_REFRESH" >/dev/null \
+ && apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /wheels /wheels
 COPY requirements.txt .

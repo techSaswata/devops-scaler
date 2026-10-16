@@ -26,7 +26,14 @@ FROM nginxinc/nginx-unprivileged:1.31.6-alpine
 # is rebuilt on its own schedule, so this closes the gap between that schedule
 # and ours without waiting for upstream.
 USER root
-RUN apk upgrade --no-cache
+# PKG_REFRESH changes on every CI run, which is the point: a cached
+# `apk upgrade` layer is a stale `apk upgrade`. On 21 Oct the build cache from
+# four days earlier replayed this layer untouched and the image shipped
+# libexpat and libx11 versions that had fixes waiting, so the gate failed on a
+# commit that changed nothing but a video file.
+ARG PKG_REFRESH=unset
+RUN echo "package refresh: $PKG_REFRESH" >/dev/null \
+ && apk upgrade --no-cache
 
 # A template, not a finished config: the official entrypoint runs envsubst over
 # /etc/nginx/templates, which is how BACKEND_HOST differs between compose

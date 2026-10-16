@@ -141,6 +141,12 @@ jobs:
           # had nothing wrong with it.
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+          # Everything above may come from cache; the OS patch layer may not.
+          # run_id is unique per run, so `apk upgrade` / `apt-get upgrade` is
+          # re-executed against today's package index while the expensive build
+          # stages stay cached.
+          build-args: |
+            PKG_REFRESH=${{ github.run_id }}
 
       - name: Trivy — fail on HIGH or CRITICAL
         uses: aquasecurity/trivy-action@v0.36.0
